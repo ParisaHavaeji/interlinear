@@ -7,7 +7,7 @@ import type { SectionMeta } from '../store/db.ts'
 import { countWords } from './sections.ts'
 import { EpubError, parseEpub } from './epub.ts'
 import { parseTxtFile } from './txt.ts'
-import type { Paragraph } from './types.ts'
+import type { EpubBook, Paragraph } from './types.ts'
 
 export type Format = 'txt' | 'epub'
 
@@ -58,7 +58,17 @@ export async function importFile(file: File): Promise<ImportedText> {
     if (e instanceof EpubError) throw new ImportError(`"${file.name}": ${e.message}`)
     throw e
   }
+  const text = flattenEpub(book, file.name)
+  if (text.paragraphs.length === 0) throw new ImportError(`"${file.name}" contains no text`)
+  return text
+}
 
+/**
+ * Flatten a parsed EPUB into the shape the store persists: one paragraph list numbered across
+ * all sections, with each section's paragraph range on the side. Also used by the Node tools
+ * that align the test EPUBs outside the browser.
+ */
+export function flattenEpub(book: EpubBook, fileName: string): ImportedText {
   const paragraphs: Paragraph[] = []
   const sections: SectionMeta[] = []
   for (const s of book.sections) {
@@ -76,11 +86,9 @@ export async function importFile(file: File): Promise<ImportedText> {
       paraCount: s.paragraphs.length,
     })
   }
-  if (paragraphs.length === 0) throw new ImportError(`"${file.name}" contains no text`)
-
   return {
-    fileName: file.name,
-    format,
+    fileName,
+    format: 'epub',
     paragraphs,
     sections,
     words: countWords(paragraphs),

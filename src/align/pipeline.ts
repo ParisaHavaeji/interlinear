@@ -85,7 +85,11 @@ export interface ChapterMap {
   pairs: ChapterPair[]
 }
 
-/** Beads at or below this confidence count as uncertain in {@link AlignStats}; step 13 tunes it. */
+/**
+ * Beads at or below this confidence count as uncertain in {@link AlignStats} and get the
+ * reader's dotted underline. Picked against the gold files (step 13): at 0.8 about half of the
+ * wrong beads are flagged and under 3% of the right ones, the best F1 of the thresholds tried.
+ */
 export const LOW_CONFIDENCE = 0.8
 
 export interface AlignStats {

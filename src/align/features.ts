@@ -19,7 +19,7 @@
  *
  * Sentences are prepared once ({@link prepareSentence}) so the DP, which prices many beads
  * per sentence, only merges precomputed token sets. {@link combinedCost} turns the four signals
- * into one cost with default weights that step 13 tunes against the gold files.
+ * into one cost with default weights checked against the gold files (see {@link DEFAULT_WEIGHTS}).
  *
  * The dictionary of Phase 4 is not built yet, so lookup goes through the {@link Lexicon}
  * interface; {@link MapLexicon} is an in-memory implementation for tests and for the induced
@@ -478,13 +478,21 @@ export function beadFeatures(
   }
 }
 
-/** Nats of penalty for a total lack of each kind of evidence. Tuned in step 13. */
+/** Nats of penalty for a total lack of each kind of evidence. */
 export interface FeatureWeights {
   lexical: number
   cognate: number
   punctuation: number
 }
 
+/**
+ * Checked against the three gold files in step 13 (`node tools/tune.ts`): coordinate descent
+ * over these weights, the deletion scale and the Gale–Church variance found no single change
+ * that raises the mean bead recall (Kafka 99.3%, Demian 98.0%, Werther 86.6% without a
+ * dictionary). Werther's misses are structural, not a matter of weights: a translator's note
+ * with no German, a dropped sentence, 1-3 beads the move set cannot reach, and one paragraph
+ * block the paragraph DP gets wrong.
+ */
 export const DEFAULT_WEIGHTS: FeatureWeights = { lexical: 3, cognate: 1.5, punctuation: 0.5 }
 
 /**

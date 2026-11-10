@@ -89,8 +89,12 @@ const CLOSERS = /[”“"’'»«)\]]*/uy
 const SEPARATOR = /(?:\s*(?:-{2,}|[—–]+)\s*|\s+)/uy
 /** A sentence start: opening quotes or brackets, then a capital letter or a digit. */
 const START = /[„“"»«‚‘'(\[]*[\p{Lu}\p{N}]/uy
-/** The word (letters and digits) ending right before the terminal run. */
-const WORD_BEFORE = /[\p{L}\p{N}]+$/u
+/**
+ * The word (letters and digits, internal apostrophes kept) ending right before the terminal
+ * run. Keeping the apostrophe is what stops a possessive or elision from passing for a single
+ * letter: "grandmother’s." and "mir's." end sentences, "S." and "z. B." do not.
+ */
+const WORD_BEFORE = /[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*$/u
 
 function matchAt(re: RegExp, text: string, at: number): string {
   re.lastIndex = at

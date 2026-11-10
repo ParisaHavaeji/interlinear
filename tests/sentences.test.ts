@@ -178,6 +178,14 @@ describe('splitSentences: abbreviations and numbers', () => {
     expect(en('So did I. Then we left. Mr. J. R. Smith came.')).toEqual(['So did I.', 'Then we left.', 'Mr. J. R. Smith came.'])
   })
 
+  it('does not mistake a possessive or elided letter after an apostrophe for an initial', () => {
+    expect(en('It had been our grandmother’s. I quickly pulled it out.')).toEqual(['It had been our grandmother’s.', 'I quickly pulled it out.'])
+    expect(de("Ich weiß, du verzeihst mir's. Waren nicht meine Verbindungen ausgesucht?")).toEqual([
+      "Ich weiß, du verzeihst mir's.",
+      'Waren nicht meine Verbindungen ausgesucht?',
+    ])
+  })
+
   it('treats one- and two-digit numbers with a period as ordinals in German only', () => {
     expect(de('Am 4. Mai kam er. Im 18. Jahrhundert war der 2. Stock teuer. Es geschah 1771. Dann kam der Krieg.')).toEqual([
       'Am 4. Mai kam er.',

@@ -12,6 +12,36 @@ in `tools/gutenberg.ts` or to pick up a corrected Gutenberg edition.
 | `goethe-werther.de.txt` | Goethe, *Die Leiden des jungen Werther* (Hamburger Ausgabe) | 2407 + 2408 | `Erstes Buch` / `Zweites Buch` |
 | `goethe-werther.en.txt` | Goethe, *The Sorrows of Young Werther*, tr. R. D. Boylan | 2527 | `PREFACE` |
 
+## Gold alignments (`*.gold.json`)
+
+Hand-checked beads for the first ~150 sentence beads of each pair (plan.md step 13), the
+measure every change to the aligner is scored against (`tests/gold.test.ts`, `tools/tune.ts`):
+
+| File | Pair | Beads | Made from |
+|---|---|---|---|
+| `kafka-verwandlung.gold.json` | the two Kafka fixtures above | 149 | first chapter |
+| `goethe-werther.gold.json` | the two Werther fixtures above | 149 | letters of May 4 to May 30, 1771 |
+| `hesse-demian.gold.json` | the Demian EPUBs in `Input/` (not in the repo; tests skip when absent) | 149 | prologue and start of chapter one |
+
+A gold file holds the beads as lists of sentence indices (`ParagraphSentence.idx` on each side),
+plus an FNV-1a hash of every sentence text the beads cover. No text is stored: the Demian
+translation is under copyright, and the Gutenberg texts are in the fixtures anyway. The hashes
+let the tests refuse to grade an alignment whose sentence splitting differs from the one the
+gold was checked against, so a splitter change fails loudly instead of quietly moving the score.
+
+Gold records what the translator did, not what the aligner can express: a German sentence
+rendered as three English ones is a 1-3 bead (the move set stops at two), a sentence the
+translator dropped is 1-0, a translator's note is 0-1. Headings between letters get no bead.
+A clause moved across a sentence boundary does not make a 2-2 bead; the beads follow the main
+content of each sentence.
+
+To make or re-check one: `node tools/gold.ts dump <pair> --out <dir>` writes the aligner's
+first N beads with their texts for review and a draft in gold format; correct the draft's
+beads; `node tools/gold.ts build <pair> <draft.json>` validates it and writes the file.
+`node tools/gold.ts score` grades the current aligner against all three. The debug view in the
+app (`npm run dev`, "Debug alignment" under an aligned book) can copy the same draft to the
+clipboard for a book imported there.
+
 ## What the script strips
 
 - Everything outside the `*** START OF …` / `*** END OF …` markers (Gutenberg header and

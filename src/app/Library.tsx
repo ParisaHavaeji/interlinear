@@ -104,6 +104,11 @@ function ShelfItem({ book, job }: { book: Book; job: AlignmentJob | undefined })
       <div class="shelf-title">{book.title}</div>
       <div class="shelf-author">{book.author}</div>
       {note}
+      {import.meta.env.DEV && status === 'ready' && (
+        <a class="shelf-note" href={`#/debug/${encodeURIComponent(book.id)}`}>
+          Debug alignment
+        </a>
+      )}
     </li>
   )
 }

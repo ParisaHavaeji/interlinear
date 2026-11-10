@@ -16,7 +16,7 @@
  * alternative exists (the bead is a coin flip); three nats means the alternative is twenty
  * times less likely. {@link SentenceBead.confidence} maps the margin to the two-way posterior
  * 1 / (1 + e^−margin), so a tie is 0.5 and a sure bead is close to 1; the reader underlines
- * beads below a threshold that step 13 picks against the gold files.
+ * beads at or below `LOW_CONFIDENCE` in pipeline.ts, picked against the gold files.
  *
  * {@link alignBlocks} runs the DP over every paragraph block of a book and reports beads in
  * terms of `ParagraphSentence.idx`, ready for the `beads` table; step 12 feeds it the chapter
