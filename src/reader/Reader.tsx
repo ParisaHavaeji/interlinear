@@ -16,6 +16,9 @@
  * the chapter-mapping corrections of plan §1.1b. A book that is not aligned yet still opens:
  * its paragraphs render without sentence spans, as one chapter, and the live query swaps the
  * real chapters and sentences in when the alignment lands.
+ *
+ * Tapping a sentence opens the bottom card of step 18 (`ui/BottomCard.tsx`) with that sentence;
+ * step 19 fills it with the translation, the highlight and the stepping controls.
  */
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
@@ -24,6 +27,7 @@ import type { Lang } from '../import/types.ts'
 import { getParagraphs } from '../store/books.ts'
 import { db, type Book, type ParagraphRow } from '../store/db.ts'
 import { useLiveQuery } from '../store/hooks.ts'
+import { BottomCard } from '../ui/BottomCard.tsx'
 import { ChaptersSheet } from './ChaptersSheet.tsx'
 import { ReaderBar, ReaderFooter, useChrome } from './ReaderChrome.tsx'
 import { runsOf, tokenize, type SentenceSpan } from './tokenize.ts'
@@ -74,6 +78,15 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
   const pageRef = useRef<HTMLDivElement>(null)
   const chrome = useChrome(`${bookId}/${chapter}`, pageRef)
   const [contents, setContents] = useState(false)
+  /** The sentence on the card, by paragraph and book-wide sentence index; null while closed. */
+  const [card, setCard] = useState<{ paraIdx: number; sentenceIdx: number } | null>(null)
+
+  const onPageClick = (e: MouseEvent) => {
+    const sent = (e.target as Element | null)?.closest<HTMLElement>('.sent')
+    const para = sent?.closest<HTMLElement>('.para')
+    if (sent === undefined || sent === null || para === undefined || para === null) return
+    setCard({ paraIdx: Number(para.dataset.para), sentenceIdx: Number(sent.dataset.sentence) })
+  }
 
   if (data === undefined) {
     return (
@@ -99,11 +112,12 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
   const paragraphs = data.paragraphs.slice(current.paraStart, current.paraStart + current.paraCount)
   const ready = data.book.alignment?.status === 'ready'
   const heading = current.heading ?? (chapters.length === 1 ? data.book.title : `Chapter ${idx + 1}`)
+  const cardText = card === null ? null : sentenceText(data, card.paraIdx, card.sentenceIdx)
 
   return (
     <div class={chrome.hidden ? 'reader reader--chrome-hidden' : 'reader'} ref={pageRef}>
       <ReaderBar title={data.book.title} onBack={onBack} onContents={ready ? () => setContents(true) : undefined} />
-      <main class="reader-page" lang={data.lang}>
+      <main class="reader-page" lang={data.lang} onClick={onPageClick}>
         <h2 class="chapter-heading">{heading}</h2>
         {!ready && <p class="reader-note">This book is still being prepared. Sentences become tappable once it is aligned.</p>}
         <ChapterBody key={`${bookId}/${idx}/${data.paragraphs.length}`} paragraphs={paragraphs} sentences={data.sentences} />
@@ -120,6 +134,21 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
       {ready && (
         <ChaptersSheet open={contents} book={data.book} current={idx} onClose={() => setContents(false)} onChapter={onChapter} />
       )}
+      <BottomCard
+        open={card !== null}
+        onClose={() => setCard(null)}
+        onOutsideTap={(target) => {
+          // A tap on another sentence switches the card (onPageClick); anything else closes it.
+          if (target === null || target.closest('.sent') === null) setCard(null)
+        }}
+        label="Sentence"
+        header={<h2 class="card-title">Sentence</h2>}
+      >
+        <p class="card-text" lang={data.lang}>
+          {cardText}
+        </p>
+        <p class="card-note">The translation appears here once the card is wired to the alignment.</p>
+      </BottomCard>
     </div>
   )
 }
@@ -132,6 +161,13 @@ export function chaptersFor(data: Pick<Loaded, 'book' | 'lang' | 'paragraphs'>):
   const chapters = data.book.alignment?.status === 'ready' ? data.book.alignment.chapters?.[data.lang] : undefined
   if (chapters !== undefined && chapters.length > 0) return chapters
   return [{ idx: 0, heading: null, sectionIdx: null, paraStart: 0, paraCount: data.paragraphs.length, words: 0 }]
+}
+
+/** The text of a sentence, cut from its paragraph along the stored span; empty if either is gone. */
+function sentenceText(data: Loaded, paraIdx: number, sentenceIdx: number): string {
+  const para = data.paragraphs.find((p) => p.idx === paraIdx)
+  const span = data.sentences.get(paraIdx)?.find((s) => s.idx === sentenceIdx)
+  return para === undefined || span === undefined ? '' : para.text.slice(span.charStart, span.charEnd)
 }
 
 // ---------------------------------------------------------------------------------------------
