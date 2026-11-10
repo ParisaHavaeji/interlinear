@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'preact/hooks'
+import { Library } from './app/Library.tsx'
 import { isIOS, isStandalone } from './pwa/register'
 
-/** Phase 0 shell: a blank Library screen with Books-style chrome. */
+/** App shell: the Library screen (Phase 1) plus the install hint and status footer from Phase 0. */
 export function App() {
   const [online, setOnline] = useState(navigator.onLine)
   const [standalone, setStandalone] = useState(false)
@@ -21,18 +22,8 @@ export function App() {
   const showInstallHint = isIOS() && !standalone
 
   return (
-    <div class="screen">
-      <header class="top-bar">
-        <h1 class="large-title">Library</h1>
-      </header>
-
-      <main class="content">
-        <div class="empty">
-          <div class="empty-cover" aria-hidden="true" />
-          <p class="empty-title">No books yet</p>
-          <p class="empty-sub">Add a German book and its English translation to start reading.</p>
-        </div>
-      </main>
+    <>
+      <Library />
 
       {showInstallHint && (
         <aside class="install-hint" role="note">
@@ -43,6 +34,6 @@ export function App() {
       <footer class="status" aria-live="polite">
         {standalone ? 'Standalone' : 'Browser'} · {online ? 'Online' : 'Offline'}
       </footer>
-    </div>
+    </>
   )
 }

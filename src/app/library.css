@@ -1,0 +1,347 @@
+/* Library screen, covers, bottom sheet and the Add Book form. Globals live in index.css. */
+
+.top-bar--library {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  color: var(--accent);
+  font: 500 24px/1 var(--font-ui);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+
+.icon-btn:active {
+  opacity: 0.6;
+}
+
+.content--shelf {
+  align-items: flex-start;
+  justify-content: stretch;
+  padding-top: 8px;
+}
+
+.btn-inline {
+  margin-top: 20px;
+}
+
+/* --- Shelf grid ------------------------------------------------------- */
+
+.shelf {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  column-gap: 20px;
+  row-gap: 28px;
+}
+
+@media (min-width: 600px) {
+  .shelf {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    column-gap: 28px;
+  }
+}
+
+.shelf-item {
+  min-width: 0;
+}
+
+.shelf-title {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.shelf-author {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Generated cover ---------------------------------------------------- */
+
+.cover {
+  aspect-ratio: 2 / 3;
+  width: 100%;
+  border-radius: 3px 6px 6px 3px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 6px 16px rgba(0, 0, 0, 0.22),
+    inset 2px 0 0 rgba(255, 255, 255, 0.18);
+  padding: 12% 10%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+  container-type: inline-size;
+}
+
+.cover-title {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 13cqw;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.cover-author {
+  font-family: var(--font-ui);
+  font-size: 8cqw;
+  font-weight: 500;
+  opacity: 0.9;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.cover-preview {
+  width: 96px;
+  flex: none;
+}
+
+/* --- Bottom sheet -------------------------------------------------------- */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: sheet-fade 200ms ease-out;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100dvh - var(--safe-top) - 24px);
+  overflow-y: auto;
+  background: var(--sheet-bg, rgba(246, 246, 248, 0.92));
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-radius: 16px 16px 0 0;
+  padding: 6px 20px calc(var(--safe-bottom) + 20px);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.18);
+  animation: sheet-rise 320ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  .sheet {
+    --sheet-bg: rgba(28, 28, 30, 0.92);
+  }
+}
+
+@keyframes sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes sheet-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sheet-grabber {
+  width: 36px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--separator);
+  margin: 0 auto 10px;
+}
+
+.sheet-title {
+  font-size: 17px;
+  font-weight: 600;
+  text-align: center;
+  margin: 0 0 16px;
+}
+
+/* --- Add Book form ---------------------------------------------------- */
+
+.add-preview {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.add-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-label {
+  font-size: 12px;
+  color: var(--fg-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.field input {
+  font: 17px var(--font-ui);
+  color: var(--fg);
+  background: var(--bg);
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  width: 100%;
+  outline: none;
+}
+
+.field input:focus {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.group {
+  background: var(--bg);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 16px;
+  cursor: pointer;
+  position: relative;
+}
+
+.row + .row::before {
+  content: '';
+  position: absolute;
+  left: 100px;
+  right: 0;
+  top: 0;
+  border-top: 0.5px solid var(--separator);
+}
+
+.row:active {
+  background: var(--bg-elev);
+}
+
+.row-label {
+  font-size: 17px;
+}
+
+.row-detail {
+  font-size: 15px;
+  color: var(--fg-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row.is-error .row-detail {
+  color: #ff3b30;
+  white-space: normal;
+}
+
+.row-chevron {
+  color: var(--fg-2);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.group-footer {
+  font-size: 13px;
+  color: var(--fg-2);
+  margin: 8px 16px 20px;
+}
+
+.form-error {
+  color: #ff3b30;
+  font-size: 15px;
+  margin: 0 0 12px;
+  text-align: center;
+}
+
+.btn-primary {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  padding: 14px;
+  font: 600 17px var(--font-ui);
+  color: #fff;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.btn-plain {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 14px;
+  margin-top: 4px;
+  font: 500 17px var(--font-ui);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
