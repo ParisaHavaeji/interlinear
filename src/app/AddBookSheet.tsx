@@ -1,9 +1,11 @@
 import { useCallback, useMemo, useState } from 'preact/hooks'
-import { startAlignment } from '../align/jobs.ts'
+import { needsAlignment, startAlignment } from '../align/jobs.ts'
+import { isPrealignedPair } from '../align/prealigned.ts'
 import { ImportError, importFile, type ImportedText } from '../import/file.ts'
 import type { Lang } from '../import/types.ts'
 import { requestPersistentStorage } from '../pwa/register.ts'
 import { addBook } from '../store/books.ts'
+import { BundleError, importBundle, parseBundle, type Bundle } from '../store/bundle.ts'
 import { BottomSheet } from '../ui/BottomSheet.tsx'
 import { Cover } from '../ui/Cover.tsx'
 import { coverColours } from '../ui/cover.ts'
@@ -14,6 +16,7 @@ interface Props {
 }
 
 const ACCEPT = '.txt,.epub,text/plain,application/epub+zip'
+const ACCEPT_BUNDLE = '.json,application/json'
 
 const LABELS: Record<Lang, string> = { de: 'Deutsch', en: 'English' }
 
@@ -24,23 +27,37 @@ interface Picked {
   loading: boolean
 }
 
-/** The "Add book" sheet: two files, title and author (prefilled from EPUB metadata), cover preview. */
+interface PickedBundle {
+  file: File
+  parsed: Bundle | null
+  error: string | null
+  loading: boolean
+}
+
+/**
+ * The "Add book" sheet: two files, title and author (prefilled from EPUB metadata), cover
+ * preview. A `.interlinear.json` bundle exported from another device (plan.md step 14) takes
+ * the place of the two files and brings its alignment along; two plain-text files with one
+ * sentence per line and equal line counts are pre-aligned input and skip the aligner too.
+ */
 export function AddBookSheet({ open, onClose }: Props) {
   const [picked, setPicked] = useState<Partial<Record<Lang, Picked>>>({})
+  const [bundle, setBundle] = useState<PickedBundle | null>(null)
   const [titleEdit, setTitleEdit] = useState<string | null>(null)
   const [authorEdit, setAuthorEdit] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Prefill from the German EPUB when present, else the English one. A field the user has
+  // Prefill from the bundle, else the German EPUB, else the English one. A field the user has
   // typed in keeps their text.
-  const meta = picked.de?.parsed?.meta ?? picked.en?.parsed?.meta ?? null
+  const meta = bundle?.parsed?.book ?? picked.de?.parsed?.meta ?? picked.en?.parsed?.meta ?? null
   const title = titleEdit ?? meta?.title ?? ''
   const author = authorEdit ?? meta?.author ?? ''
   const colours = useMemo(() => coverColours(title), [title])
 
   const reset = useCallback(() => {
     setPicked({})
+    setBundle(null)
     setTitleEdit(null)
     setAuthorEdit(null)
     setSaving(false)
@@ -69,9 +86,26 @@ export function AddBookSheet({ open, onClose }: Props) {
     }
   }
 
+  const onPickBundle = async (e: Event) => {
+    const input = e.currentTarget as HTMLInputElement
+    const file = input.files?.[0]
+    if (!file) return
+    setError(null)
+    setBundle({ file, parsed: null, error: null, loading: true })
+    try {
+      const parsed = parseBundle(await file.text())
+      setBundle({ file, parsed, error: null, loading: false })
+    } catch (err) {
+      const message = err instanceof BundleError ? err.message : `Could not read "${file.name}"`
+      console.error(err)
+      setBundle({ file, parsed: null, error: message, loading: false })
+    }
+  }
+
   const de = picked.de?.parsed ?? null
   const en = picked.en?.parsed ?? null
-  const canSave = de !== null && en !== null && !saving
+  const prealigned = de !== null && en !== null && isPrealignedPair(de, en)
+  const canSave = !saving && (bundle !== null ? bundle.parsed !== null : de !== null && en !== null)
 
   const save = async () => {
     if (!canSave) return
@@ -79,9 +113,10 @@ export function AddBookSheet({ open, onClose }: Props) {
     setError(null)
     try {
       await requestPersistentStorage()
-      const book = await addBook({ title, author, de, en })
-      // Alignment runs in the background; the cover shows its progress.
-      void startAlignment(book.id)
+      const book = bundle?.parsed ? await importBundle(bundle.parsed, { title, author }) : await addBook({ title, author, de: de!, en: en! })
+      // Alignment runs in the background; the cover shows its progress. A bundle brings its
+      // alignment along, and pre-aligned text is beaded line by line inside the queue.
+      if (needsAlignment(book)) void startAlignment(book.id)
       reset()
       onClose()
     } catch (err) {
@@ -90,6 +125,11 @@ export function AddBookSheet({ open, onClose }: Props) {
       setSaving(false)
     }
   }
+
+  let footer: string
+  if (bundle !== null) footer = 'A bundle holds both texts and their alignment, so the book is ready to read at once.'
+  else if (prealigned) footer = `Both files have one sentence per line and ${de.paragraphs.length.toLocaleString()} lines: they will be matched line by line, without alignment.`
+  else footer = 'Plain text (.txt) or EPUB. Chapters and sentences are matched after import.'
 
   return (
     <BottomSheet open={open} onClose={close} title="Add Book">
@@ -120,11 +160,29 @@ export function AddBookSheet({ open, onClose }: Props) {
       </div>
 
       <div class="group">
-        {(['de', 'en'] as Lang[]).map((lang) => (
-          <FileRow key={lang} lang={lang} picked={picked[lang]} onChange={onPick(lang)} />
-        ))}
+        {bundle !== null ? (
+          <BundleRow picked={bundle} onRemove={() => setBundle(null)} />
+        ) : (
+          (['de', 'en'] as Lang[]).map((lang) => <FileRow key={lang} lang={lang} picked={picked[lang]} onChange={onPick(lang)} />)
+        )}
       </div>
-      <p class="group-footer">Plain text (.txt) or EPUB. Chapters and sentences are matched after import.</p>
+      <p class="group-footer">{footer}</p>
+
+      {bundle === null && (
+        <>
+          <div class="group">
+            <label class="row" for="file-bundle">
+              <span class="row-label">Bundle</span>
+              <span class="row-detail">Import an .interlinear.json file from another device</span>
+              <span class="row-chevron" aria-hidden="true">
+                ›
+              </span>
+              <input id="file-bundle" type="file" accept={ACCEPT_BUNDLE} class="visually-hidden" onChange={onPickBundle} />
+            </label>
+          </div>
+          <p class="group-footer">Export a book from the shelf to make one.</p>
+        </>
+      )}
 
       {error && <p class="form-error" role="alert">{error}</p>}
 
@@ -148,8 +206,9 @@ function FileRow({ lang, picked, onChange }: { lang: Lang; picked: Picked | unde
     detail = picked.error
     cls = 'is-error'
   } else if (picked.parsed) {
-    const { words, paragraphs, sections } = picked.parsed
-    detail = `${picked.file.name} · ${words.toLocaleString()} words, ${paragraphs.length.toLocaleString()} paragraphs`
+    const { words, paragraphs, sections, layout } = picked.parsed
+    const unit = layout === 'lines' ? 'lines' : 'paragraphs'
+    detail = `${picked.file.name} · ${words.toLocaleString()} words, ${paragraphs.length.toLocaleString()} ${unit}`
     if (sections.length > 0) detail += `, ${sections.length} sections`
   } else detail = picked.file.name
 
@@ -162,5 +221,30 @@ function FileRow({ lang, picked, onChange }: { lang: Lang; picked: Picked | unde
       </span>
       <input id={id} type="file" accept={ACCEPT} class="visually-hidden" onChange={onChange} />
     </label>
+  )
+}
+
+function BundleRow({ picked, onRemove }: { picked: PickedBundle; onRemove: () => void }) {
+  let detail: string
+  let cls = ''
+  if (picked.loading) detail = 'Reading…'
+  else if (picked.error) {
+    detail = picked.error
+    cls = 'is-error'
+  } else if (picked.parsed) {
+    const { book, beads } = picked.parsed
+    const words = book.sources.de.words + book.sources.en.words
+    detail = `${picked.file.name} · ${words.toLocaleString()} words`
+    detail += beads.length > 0 ? `, ${beads.length.toLocaleString()} aligned sentences` : ', not aligned yet'
+  } else detail = picked.file.name
+
+  return (
+    <div class={`row ${cls}`}>
+      <span class="row-label">Bundle</span>
+      <span class="row-detail">{detail}</span>
+      <button type="button" class="row-remove" onClick={onRemove} aria-label="Remove bundle">
+        Remove
+      </button>
+    </div>
   )
 }

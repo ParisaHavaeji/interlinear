@@ -6,7 +6,7 @@
 import type { SectionMeta } from '../store/db.ts'
 import { countWords } from './sections.ts'
 import { EpubError, parseEpub } from './epub.ts'
-import { parseTxtFile } from './txt.ts'
+import { decodeTxt, parseTxtLayout, type TxtLayout } from './txt.ts'
 import type { EpubBook, Paragraph } from './types.ts'
 
 export type Format = 'txt' | 'epub'
@@ -25,6 +25,8 @@ export interface ImportedText {
   words: number
   /** Package metadata for EPUBs, null for plain text. */
   meta: ImportMeta | null
+  /** Plain text only: how the file laid out its paragraphs (see `TxtLayout`). */
+  layout?: TxtLayout
 }
 
 export class ImportError extends Error {
@@ -46,9 +48,9 @@ export async function importFile(file: File): Promise<ImportedText> {
   if (format === null) throw new ImportError(`"${file.name}" is not a .txt or .epub file`)
 
   if (format === 'txt') {
-    const paragraphs = await parseTxtFile(file)
+    const { paragraphs, layout } = parseTxtLayout(decodeTxt(await file.arrayBuffer()))
     if (paragraphs.length === 0) throw new ImportError(`"${file.name}" contains no text`)
-    return { fileName: file.name, format, paragraphs, sections: [], words: countWords(paragraphs), meta: null }
+    return { fileName: file.name, format, paragraphs, sections: [], words: countWords(paragraphs), meta: null, layout }
   }
 
   let book

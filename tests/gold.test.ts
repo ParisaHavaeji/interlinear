@@ -121,14 +121,14 @@ describe('scoreGold', () => {
 })
 
 // ---------------------------------------------------------------------------------------------
-// The aligner against the hand-checked beads. Floors are what the tuned defaults reach now, a
-// little below so a platform rounding difference does not fail CI; step 14 raises them to the
-// plan's targets (≥97% Kafka, ≥95% Demian, ≥93% Werther).
+// The aligner against the hand-checked beads, at the plan's step 14 targets: ≥97% Kafka, ≥95%
+// Demian, ≥93% Werther. With the 1-3 / 3-1 sentence moves and the step 14 tuning (lexical 5,
+// sentence deletion scale 300) the defaults reach 100%, 100% and 95.9% without a dictionary.
 
 const FLOORS: Record<string, number> = {
-  'kafka-verwandlung': 0.99,
-  'hesse-demian': 0.97,
-  'goethe-werther': 0.92,
+  'kafka-verwandlung': 0.97,
+  'hesse-demian': 0.95,
+  'goethe-werther': 0.93,
 }
 
 describe.each(PAIRS)('gold alignment of $id', (spec) => {

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'preact/hooks'
 import { resumeAlignments, startAlignment, type AlignmentJob } from '../align/jobs.ts'
+import { bundleFileName, exportBundle } from '../store/bundle.ts'
 import type { Book } from '../store/db.ts'
 import { useAlignmentJobs, useBooks } from '../store/hooks.ts'
 import { Cover } from '../ui/Cover.tsx'
+import { shareOrDownload } from '../ui/download.ts'
 import { AddBookSheet } from './AddBookSheet.tsx'
 import './library.css'
 
@@ -71,10 +73,28 @@ function Shelf({ books, jobs }: { books: Book[]; jobs: ReadonlyMap<string, Align
   )
 }
 
+/**
+ * Export a book as a `.interlinear.json` bundle (plan.md step 14) through the share sheet or a
+ * download. Returns the error message to show, or null.
+ */
+async function exportBook(book: Book): Promise<string | null> {
+  try {
+    const bundle = await exportBundle(book.id)
+    const file = new File([JSON.stringify(bundle)], bundleFileName(book), { type: 'application/json' })
+    await shareOrDownload(file)
+    return null
+  } catch (err) {
+    console.error(err)
+    return 'Could not export the book.'
+  }
+}
+
 function ShelfItem({ book, job }: { book: Book; job: AlignmentJob | undefined }) {
   const status = book.alignment?.status ?? 'pending'
   const busy = job !== undefined || status === 'pending' || status === 'aligning'
   const fraction = job?.fraction ?? 0
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   let note = null
   if (job !== undefined) {
     note = (
@@ -104,10 +124,27 @@ function ShelfItem({ book, job }: { book: Book; job: AlignmentJob | undefined })
       <div class="shelf-title">{book.title}</div>
       <div class="shelf-author">{book.author}</div>
       {note}
-      {import.meta.env.DEV && status === 'ready' && (
-        <a class="shelf-note" href={`#/debug/${encodeURIComponent(book.id)}`}>
-          Debug alignment
-        </a>
+      {status === 'ready' && (
+        <div class="shelf-note shelf-actions">
+          <button
+            type="button"
+            class="link-btn"
+            disabled={exporting}
+            onClick={async () => {
+              setExporting(true)
+              setExportError(await exportBook(book))
+              setExporting(false)
+            }}
+          >
+            {exporting ? 'Exporting…' : 'Export'}
+          </button>
+          {import.meta.env.DEV && <a href={`#/debug/${encodeURIComponent(book.id)}`}>Debug</a>}
+        </div>
+      )}
+      {exportError && (
+        <div class="shelf-note shelf-note--error" role="alert">
+          {exportError}
+        </div>
       )}
     </li>
   )

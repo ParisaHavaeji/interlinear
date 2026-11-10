@@ -206,8 +206,9 @@ describe('on the Kafka fixture', () => {
     expect(sentDe.length - covered(sentDe, 'de').length).toBe(3)
     for (const b of beads) {
       expect(b.deSentenceIdx.length + b.enSentenceIdx.length).toBeGreaterThan(0)
-      expect(b.deSentenceIdx.length).toBeLessThanOrEqual(2)
-      expect(b.enSentenceIdx.length).toBeLessThanOrEqual(2)
+      expect(b.deSentenceIdx.length).toBeLessThanOrEqual(3)
+      expect(b.enSentenceIdx.length).toBeLessThanOrEqual(3)
+      expect(b.deSentenceIdx.length + b.enSentenceIdx.length).toBeLessThanOrEqual(4)
     }
     const oneToOne = beads.filter((b) => b.deSentenceIdx.length === 1 && b.enSentenceIdx.length === 1).length
     expect(oneToOne / beads.length).toBeGreaterThan(0.8)

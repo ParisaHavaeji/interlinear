@@ -391,3 +391,29 @@
   color: var(--accent);
   cursor: pointer;
 }
+
+.shelf-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.shelf-actions a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.link-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- Bundle row in the Add Book sheet ------------------------------------- */
+
+.row-remove {
+  border: 0;
+  background: none;
+  padding: 0 4px;
+  font: 500 15px var(--font-ui);
+  color: var(--accent);
+  cursor: pointer;
+}

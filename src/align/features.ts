@@ -486,14 +486,14 @@ export interface FeatureWeights {
 }
 
 /**
- * Checked against the three gold files in step 13 (`node tools/tune.ts`): coordinate descent
- * over these weights, the deletion scale and the Gale–Church variance found no single change
- * that raises the mean bead recall (Kafka 99.3%, Demian 98.0%, Werther 92.6% without a
- * dictionary, once the paragraph DP could merge four paragraphs into one). Werther's remaining
- * misses are structural, not a matter of weights: a translator's note with no German, a
- * dropped sentence, and 1-3 beads the sentence move set cannot reach.
+ * Checked against the three gold files (`node tools/tune.ts`, steps 13 and 14): coordinate
+ * descent over these weights, the sentence deletion scale and the Gale–Church variance. With
+ * the 1-3 / 3-1 sentence moves of step 14, a lexical weight of 5 and a sentence deletion scale
+ * of 300 (`SENTENCE_DELETION_SCALE` in beads.ts) reach Kafka 100%, Demian 100%, Werther 95.9%
+ * without a dictionary; at lexical 3 and scale 100 Werther was 92.6%. The remaining Werther
+ * misses are a dropped sentence and a sentence pair the translator reshuffled.
  */
-export const DEFAULT_WEIGHTS: FeatureWeights = { lexical: 3, cognate: 1.5, punctuation: 0.5 }
+export const DEFAULT_WEIGHTS: FeatureWeights = { lexical: 5, cognate: 1.5, punctuation: 0.5 }
 
 /**
  * One cost in nats for a bead: the length cost plus, for each overlap signal, its weight times

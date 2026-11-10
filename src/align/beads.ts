@@ -2,11 +2,13 @@
  * Alignment Layer C, part two (plan §1.2, step 10): the sentence bead DP.
  *
  * Inside one aligned paragraph block (a {@link ParagraphBead} of step 7) the German and English
- * sentences are aligned by dynamic programming over beads of 1-1, 1-2, 2-1, 1-0, 0-1 and 2-2
- * sentences. A bead's cost is the combined feature cost of step 9 (length fit, dictionary
- * overlap, cognates, punctuation shape, the overlap penalties scaled by the bead's size in
- * sentence pairs) plus the −log prior of its shape, the Gale–Church priors with 2-2 added. The
- * cheapest path through the grid is the alignment.
+ * sentences are aligned by dynamic programming over beads of 1-1, 1-2, 2-1, 1-0, 0-1, 2-2, 1-3
+ * and 3-1 sentences. A bead's cost is the combined feature cost of step 9 (length fit,
+ * dictionary overlap, cognates, punctuation shape, the overlap penalties scaled by the bead's
+ * size in sentence pairs) plus the −log prior of its shape: the Gale–Church priors, with 2-2
+ * added, and 1-3 / 3-1 below those (step 14: both translators in the gold files cut one long
+ * sentence into three now and then, and the move pays for itself on every pair). The cheapest
+ * path through the grid is the alignment.
  *
  * Every bead also gets a **confidence**: the margin, in nats, between the best path and the
  * best path that does not contain this bead. A path avoids a bead exactly when it covers one
@@ -36,9 +38,9 @@ import type { ParagraphSentence } from './sentences.ts'
 
 /** One aligned group of sentences: positions into the two lists given to {@link alignSentences}. */
 export interface SentenceBead {
-  /** Indices of the German sentences in this bead (0, 1 or 2 of them). */
+  /** Indices of the German sentences in this bead (0 to 3 of them). */
   de: number[]
-  /** Indices of the English sentences in this bead (0, 1 or 2 of them). */
+  /** Indices of the English sentences in this bead (0 to 3 of them). */
   en: number[]
   /** Cost of this bead in nats: the combined feature cost plus the shape's prior. */
   cost: number
@@ -51,12 +53,20 @@ export interface SentenceBead {
   confidence: number
 }
 
+/**
+ * Characters per nat for a one-sided sentence bead, three times the paragraph DP's. Tuned in
+ * step 14 (`tools/tune.ts`): a dropped sentence or a translator's aside is far more common than
+ * a dropped paragraph, and under the paragraph scale the DP preferred shifting a whole letter
+ * of Werther by one sentence over paying for two 0-1 beads.
+ */
+export const SENTENCE_DELETION_SCALE = 300
+
 export interface AlignOptions {
   /** Expected English characters per German character; estimated from the sentences when omitted. */
   ratio?: number
   /** Gale–Church variance; defaults to the structure module's. */
   variance?: number
-  /** Characters per nat for one-sided beads; defaults to the structure module's. */
+  /** Characters per nat for one-sided beads; defaults to {@link SENTENCE_DELETION_SCALE}. */
   deletionScale?: number
   /** Feature weights; defaults to {@link DEFAULT_WEIGHTS}. */
   weights?: FeatureWeights
@@ -64,7 +74,8 @@ export interface AlignOptions {
 
 /**
  * Move table: [German sentences consumed, English sentences consumed, prior probability].
- * Gale & Church (1993), table 5.
+ * Gale & Church (1993), table 5, plus 1-3 and 3-1 at a prior below 2-2's: rare, but real in
+ * every gold file, and without the move a 1-3 passage costs two wrong beads instead of none.
  */
 export const MOVES: readonly (readonly [number, number, number])[] = [
   [1, 1, 0.89],
@@ -73,6 +84,8 @@ export const MOVES: readonly (readonly [number, number, number])[] = [
   [2, 1, 0.089],
   [1, 2, 0.089],
   [2, 2, 0.011],
+  [1, 3, 0.004],
+  [3, 1, 0.004],
 ]
 const MOVE_COSTS = MOVES.map(([, , prior]) => -Math.log(prior))
 const K = MOVES.length
@@ -106,7 +119,7 @@ export function alignSentences(
   if (n === 0 && m === 0) return []
   const ratio = options.ratio ?? estimateSentenceRatio(de, en)
   const weights = options.weights ?? DEFAULT_WEIGHTS
-  const featureOptions = { ratio, variance: options.variance, deletionScale: options.deletionScale }
+  const featureOptions = { ratio, variance: options.variance, deletionScale: options.deletionScale ?? SENTENCE_DELETION_SCALE }
 
   // edge[(i * width + j) * K + k]: cost of the bead that ends at cell (i, j) by move k,
   // Infinity when the move does not fit before the cell.
@@ -228,9 +241,9 @@ export interface ParagraphBlock {
 
 /** A sentence bead of the book: what the `beads` table stores minus book id and `manual`. */
 export interface AlignedBead {
-  /** `ParagraphSentence.idx` of the German sentences (0, 1 or 2 of them). */
+  /** `ParagraphSentence.idx` of the German sentences (0 to 3 of them). */
   deSentenceIdx: number[]
-  /** `ParagraphSentence.idx` of the English sentences (0, 1 or 2 of them). */
+  /** `ParagraphSentence.idx` of the English sentences (0 to 3 of them). */
   enSentenceIdx: number[]
   cost: number
   margin: number

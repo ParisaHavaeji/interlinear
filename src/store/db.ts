@@ -6,6 +6,7 @@
 import { Dexie, type EntityTable, type Table } from 'dexie'
 import type { AlignStats, ChapterMap } from '../align/pipeline.ts'
 import type { InducedPair } from '../align/lexicon.ts'
+import type { TxtLayout } from '../import/txt.ts'
 import type { Lang, SectionKind } from '../import/types.ts'
 
 export const DB_NAME = 'interlinear'
@@ -24,6 +25,11 @@ export interface SourceInfo {
   words: number
   /** EPUB spine items, in order. Empty for plain text (headings are detected at align time). */
   sections: SectionMeta[]
+  /**
+   * Plain text only: `lines` when the file had one paragraph per line. Two `lines` sources with
+   * the same paragraph count are pre-aligned input and skip the aligner (see `align/prealigned.ts`).
+   */
+  layout?: TxtLayout
 }
 
 /** A spine item of an imported EPUB, pointing at its paragraphs by index range. */

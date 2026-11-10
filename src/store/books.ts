@@ -21,13 +21,15 @@ export function newId(): string {
 }
 
 function sourceInfo(text: ImportedText): SourceInfo {
-  return {
+  const info: SourceInfo = {
     fileName: text.fileName,
     format: text.format,
     paragraphs: text.paragraphs.length,
     words: text.words,
     sections: text.sections,
   }
+  if (text.layout !== undefined) info.layout = text.layout
+  return info
 }
 
 function rows(bookId: string, lang: Lang, text: ImportedText): ParagraphRow[] {

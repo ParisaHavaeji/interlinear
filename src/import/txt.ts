@@ -25,6 +25,14 @@ export function normaliseText(text: string): string {
 }
 
 /**
+ * How a plain-text file laid out its paragraphs: `blocks` separated by blank lines (the usual
+ * case, hard-wrapped or not), or one paragraph per `lines` when the file had no blank lines
+ * at all. Two `lines` files with the same line count are the pre-aligned input of plan \u00a71.2
+ * (one sentence per line, line *i* translating line *i*) and skip the aligner.
+ */
+export type TxtLayout = 'blocks' | 'lines'
+
+/**
  * Split plain text into paragraphs.
  *
  * Paragraphs are separated by one or more blank lines (a line is blank when it holds only
@@ -37,12 +45,21 @@ export function normaliseText(text: string): string {
  * and stays one paragraph.
  */
 export function parseTxt(text: string): Paragraph[] {
+  return parseTxtLayout(text).paragraphs
+}
+
+/** {@link parseTxt}, also reporting which {@link TxtLayout} the file turned out to have. */
+export function parseTxtLayout(text: string): { paragraphs: Paragraph[]; layout: TxtLayout } {
   const normalised = normaliseText(text)
   let blocks = normalised.split(/\n[ \t\u00a0]*\n+/)
+  let layout: TxtLayout = 'blocks'
 
   if (blocks.length === 1) {
     const lines = normalised.split('\n').filter((l) => collapse(l) !== '')
-    if (lines.length > 1 && looksLikeOneParagraphPerLine(lines)) blocks = lines
+    if (lines.length > 1 && looksLikeOneParagraphPerLine(lines)) {
+      blocks = lines
+      layout = 'lines'
+    }
   }
 
   const paragraphs: Paragraph[] = []
@@ -51,7 +68,7 @@ export function parseTxt(text: string): Paragraph[] {
     if (t === '') continue
     paragraphs.push({ idx: paragraphs.length, text: t })
   }
-  return paragraphs
+  return { paragraphs, layout }
 }
 
 const TERMINAL = /[.!?…:;"'»«“”„’)\]]$/

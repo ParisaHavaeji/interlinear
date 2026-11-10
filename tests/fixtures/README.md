@@ -30,7 +30,7 @@ let the tests refuse to grade an alignment whose sentence splitting differs from
 gold was checked against, so a splitter change fails loudly instead of quietly moving the score.
 
 Gold records what the translator did, not what the aligner can express: a German sentence
-rendered as three English ones is a 1-3 bead (the move set stops at two), a sentence the
+rendered as three English ones is a 1-3 bead (the rarest move the aligner has; 1-4 would be beyond it), a sentence the
 translator dropped is 1-0, a translator's note is 0-1. Headings between letters get no bead.
 A clause moved across a sentence boundary does not make a 2-2 bead; the beads follow the main
 content of each sentence.

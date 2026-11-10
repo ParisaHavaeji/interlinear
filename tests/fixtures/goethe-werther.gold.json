@@ -4,7 +4,7 @@
     "de": "tests/fixtures/goethe-werther.de.txt",
     "en": "tests/fixtures/goethe-werther.en.txt"
   },
-  "notes": "First 149 beads of the paired text, hand-checked against the two editions. Sentence hashes are FNV-1a of the sentence text; a mismatch means the splitter changed and the file needs re-checking.",
+  "notes": "First 148 beads of the paired text, hand-checked against the two editions (149 at first; the May 13 letter's \"Ich will nicht mehr geleitet, ermuntert, angefeuert sein ...\" is one 1-3 bead, not a dropped English sentence plus a 1-2). Sentence hashes are FNV-1a of the sentence text; a mismatch means the splitter changed and the file needs re-checking.",
   "sentences": {
     "de": {
       "2": "748e4bad",
@@ -684,16 +684,11 @@
       ]
     },
     {
-      "de": [],
-      "en": [
-        56
-      ]
-    },
-    {
       "de": [
         48
       ],
       "en": [
+        56,
         57,
         58
       ]

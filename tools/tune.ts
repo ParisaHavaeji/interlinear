@@ -11,6 +11,7 @@
 // (how many wrong and right beads fall at or below each threshold) for picking LOW_CONFIDENCE.
 // Nothing is written: copy the winning values into features.ts / structure.ts by hand.
 import { readFileSync } from 'node:fs'
+import { SENTENCE_DELETION_SCALE } from '../src/align/beads.ts'
 import { DEFAULT_WEIGHTS, type FeatureWeights } from '../src/align/features.ts'
 import { scoreGold, type GoldFile, type GoldScore } from '../src/align/gold.ts'
 import { alignBook, type AlignBookOptions, type AlignRequest } from '../src/align/pipeline.ts'
@@ -43,7 +44,7 @@ const GRID: Record<keyof Knobs, number[]> = quick
       variance: [3.4, 5, 6.8, 10, 13.6, 20],
     }
 
-const BASELINE: Knobs = { ...DEFAULT_WEIGHTS, deletionScale: 100, variance: 6.8 }
+const BASELINE: Knobs = { ...DEFAULT_WEIGHTS, deletionScale: SENTENCE_DELETION_SCALE, variance: 6.8 }
 
 function optionsOf(k: Knobs): AlignBookOptions {
   const weights: FeatureWeights = { lexical: k.lexical, cognate: k.cognate, punctuation: k.punctuation }

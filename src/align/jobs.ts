@@ -14,12 +14,16 @@
  *   from `worker-runner.ts` at startup; tests pass one that calls {@link alignBook} directly.
  * - Saving checks the book still exists, so a book deleted while aligning leaves nothing
  *   behind; {@link cancelAlignment} also terminates its worker.
+ * - Pre-aligned input (step 14, `prealigned.ts`) takes the same path minus the runner: the
+ *   result is built from the lines directly and saved, so the shelf shows it as any other
+ *   book and an interrupted import resumes the same way.
  */
 
 import type { Lang, Paragraph } from '../import/types.ts'
 import { getParagraphs } from '../store/books.ts'
 import { db as sharedDb, type AlignmentState, type BeadRow, type Book, type InterlinearDB, type SentenceRow } from '../store/db.ts'
 import { alignBook, type AlignProgress, type AlignRequest, type AlignResult, type AlignStage } from './pipeline.ts'
+import { isPrealignedBook, prealignedResult } from './prealigned.ts'
 
 // ---------------------------------------------------------------------------------------------
 // Runners
@@ -177,15 +181,17 @@ async function run(bookId: string, entry: Active, db: InterlinearDB, runner: Run
     const request = await requestFor(book, db)
     entry.job.stage = 'structure'
     publish()
-    const result = await runner(
-      request,
-      (p) => {
-        entry.job.stage = p.stage
-        entry.job.fraction = p.fraction
-        publish()
-      },
-      signal,
-    )
+    const result = isPrealignedBook(book)
+      ? prealignedResult(request.de.paragraphs, request.en.paragraphs)
+      : await runner(
+          request,
+          (p) => {
+            entry.job.stage = p.stage
+            entry.job.fraction = p.fraction
+            publish()
+          },
+          signal,
+        )
     if (signal.aborted) return
     entry.job.stage = 'saving'
     entry.job.fraction = 0.95
