@@ -1,0 +1,144 @@
+/* Reader screen (plan.md step 16). The chrome is provisional until step 17; the page itself
+   follows Books: serif body, indented paragraphs without gaps, centred chapter heading. */
+
+.reader {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* --- Provisional top bar ------------------------------------------------- */
+
+.reader-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 2fr) 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: calc(var(--safe-top) + 6px) calc(var(--safe-right) + 12px) 6px calc(var(--safe-left) + 12px);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid var(--separator);
+  font: 15px var(--font-ui);
+}
+
+.reader-back {
+  justify-self: start;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: 500 17px var(--font-ui);
+  padding: 6px 4px;
+  cursor: pointer;
+}
+
+.reader-back:active {
+  opacity: 0.6;
+}
+
+.reader-bar-title {
+  text-align: center;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reader-bar-side {
+  justify-self: end;
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Page ------------------------------------------------------------------ */
+
+.reader-page {
+  flex: 1;
+  width: 100%;
+  max-width: 42em;
+  margin: 0 auto;
+  padding: 24px calc(var(--safe-right) + 22px) calc(var(--safe-bottom) + 48px) calc(var(--safe-left) + 22px);
+  font: 18px/1.55 var(--font-serif);
+  /* The window corrects the scroll position itself when a paragraph above the viewport is
+     measured; the browser's own anchoring would correct it a second time. */
+  overflow-anchor: none;
+}
+
+@media (min-width: 700px) {
+  .reader-page {
+    font-size: 20px;
+  }
+}
+
+.chapter-heading {
+  font: 600 24px/1.3 var(--font-serif);
+  letter-spacing: -0.01em;
+  text-align: center;
+  margin: 32px 0 36px;
+}
+
+.reader-note {
+  font: 15px/1.4 var(--font-ui);
+  color: var(--fg-2);
+  text-align: center;
+  margin: 0 0 24px;
+}
+
+/* Paragraphs are indented, not spaced, as in Books. `PARAGRAPH_SPACING` in Reader.tsx must
+   match the vertical margin and padding here (currently none). */
+.para {
+  margin: 0;
+  padding: 0;
+  text-indent: 1.6em;
+  text-align: left;
+  overflow-wrap: break-word;
+  -webkit-hyphens: auto;
+  hyphens: auto;
+}
+
+.para--first {
+  text-indent: 0;
+}
+
+/* Sentence and word spans carry no styling of their own yet: step 19 highlights the tapped
+   sentence, step 24 the tapped word. The clone keeps a future highlight whole across lines. */
+.sent {
+  border-radius: 4px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.chapter-spacer {
+  width: 100%;
+}
+
+/* --- Chapter navigation ---------------------------------------------------- */
+
+.chapter-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 48px;
+  padding-top: 16px;
+  border-top: 0.5px solid var(--separator);
+  font: 500 15px var(--font-ui);
+}
+
+.chapter-nav button {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  padding: 8px 0;
+  cursor: pointer;
+}
+
+.chapter-nav button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

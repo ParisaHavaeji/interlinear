@@ -454,3 +454,17 @@
   color: var(--accent);
   cursor: pointer;
 }
+
+/* --- Opening a book (plan.md step 16) ------------------------------------- */
+
+.shelf-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  -webkit-touch-callout: none;
+}
+
+.shelf-link:active .cover {
+  transform: scale(0.97);
+  transition: transform 120ms ease-out;
+}

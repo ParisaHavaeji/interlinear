@@ -8,6 +8,7 @@ import { Cover } from '../ui/Cover.tsx'
 import { shareOrDownload } from '../ui/download.ts'
 import { AddBookSheet } from './AddBookSheet.tsx'
 import { RealignSheet } from './RealignSheet.tsx'
+import { debugHash, readHash } from './routes.ts'
 import './library.css'
 
 /** Library tab: Books-style bookshelf grid with an "Add book" sheet. */
@@ -133,11 +134,22 @@ function ShelfItem({ book, job, onRealign }: { book: Book; job: AlignmentJob | u
       </div>
     )
   }
-  return (
-    <li class="shelf-item">
+  const cover = (
+    <>
       <Cover title={book.title} author={book.author} colours={book.cover} class="cover-shelf" progress={busy ? fraction : undefined} />
       <div class="shelf-title">{book.title}</div>
       <div class="shelf-author">{book.author}</div>
+    </>
+  )
+  return (
+    <li class="shelf-item">
+      {status === 'ready' ? (
+        <a class="shelf-link" href={readHash(book.id, 0)} aria-label={`Read ${book.title}`}>
+          {cover}
+        </a>
+      ) : (
+        cover
+      )}
       {note}
       {status === 'ready' && job === undefined && (
         <div class="shelf-note shelf-actions">
@@ -159,7 +171,7 @@ function ShelfItem({ book, job, onRealign }: { book: Book; job: AlignmentJob | u
               Re-align…
             </button>
           )}
-          {import.meta.env.DEV && <a href={`#/debug/${encodeURIComponent(book.id)}`}>Debug</a>}
+          {import.meta.env.DEV && <a href={debugHash(book.id)}>Debug</a>}
         </div>
       )}
       {realignError && (

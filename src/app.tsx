@@ -1,17 +1,13 @@
 import { lazy, Suspense } from 'preact/compat'
 import { useEffect, useState } from 'preact/hooks'
 import { Library } from './app/Library.tsx'
+import { parseRoute, readHash } from './app/routes.ts'
 import { isIOS, isStandalone } from './pwa/register'
+import { Reader } from './reader/Reader.tsx'
 
 // Development only: the alignment debug view of plan.md step 13, at #/debug/<bookId>. The
 // import is lazy and behind `import.meta.env.DEV`, so production bundles never include it.
 const AlignmentDebug = import.meta.env.DEV ? lazy(() => import('./app/AlignmentDebug.tsx').then((m) => m.AlignmentDebug)) : null
-
-/** The book id of a `#/debug/<id>` hash, or null. */
-export function debugBookId(hash: string): string | null {
-  const m = /^#\/debug\/([^/]+)$/.exec(hash)
-  return m === null ? null : decodeURIComponent(m[1])
-}
 
 function useHash(): string {
   const [hash, setHash] = useState(location.hash)
@@ -23,7 +19,15 @@ function useHash(): string {
   return hash
 }
 
-/** App shell: the Library screen (Phase 1) plus the install hint and status footer from Phase 0. */
+const toLibrary = () => {
+  location.hash = ''
+}
+
+/**
+ * App shell: hash-routed between the Library (Phase 1), the Reader (Phase 3, `#/read/<id>`) and,
+ * in development, the alignment debug view. The install hint and status footer from Phase 0 show
+ * on the Library only.
+ */
 export function App() {
   const [online, setOnline] = useState(navigator.onLine)
   const [standalone, setStandalone] = useState(false)
@@ -41,12 +45,25 @@ export function App() {
   }, [])
 
   const showInstallHint = isIOS() && !standalone
-  const hash = useHash()
-  const debugId = AlignmentDebug === null ? null : debugBookId(hash)
-  if (AlignmentDebug !== null && debugId !== null) {
+  const route = parseRoute(useHash())
+
+  if (route.screen === 'read') {
+    return (
+      <Reader
+        bookId={route.bookId}
+        chapter={route.chapter}
+        onBack={toLibrary}
+        onChapter={(chapter) => {
+          location.hash = readHash(route.bookId, chapter)
+        }}
+      />
+    )
+  }
+
+  if (route.screen === 'debug' && AlignmentDebug !== null) {
     return (
       <Suspense fallback={null}>
-        <AlignmentDebug bookId={debugId} onBack={() => (location.hash = '')} />
+        <AlignmentDebug bookId={route.bookId} onBack={toLibrary} />
       </Suspense>
     )
   }
