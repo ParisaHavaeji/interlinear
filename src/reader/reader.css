@@ -177,12 +177,33 @@
   text-indent: 0;
 }
 
-/* Sentence and word spans carry no styling of their own yet: step 19 highlights the tapped
-   sentence, step 24 the tapped word. The clone keeps a future highlight whole across lines. */
+/* Sentences (plan.md step 19): the bead on the card gets Books' soft yellow highlight, whole
+   across line breaks thanks to the clone; sentences of uncertain beads a faint dotted underline.
+   Word spans carry no styling yet (step 24 highlights the tapped word). */
 .sent {
+  --highlight: rgba(255, 214, 10, 0.42);
   border-radius: 4px;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
+  cursor: pointer;
+  transition: background-color 160ms ease-out;
+}
+
+@media (prefers-color-scheme: dark) {
+  .sent {
+    --highlight: rgba(255, 204, 0, 0.3);
+  }
+}
+
+.sent--active {
+  background-color: var(--highlight);
+}
+
+.sent--uncertain {
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--fg-2) 65%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
 }
 
 .chapter-spacer {
