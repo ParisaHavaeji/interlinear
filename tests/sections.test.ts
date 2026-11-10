@@ -14,8 +14,14 @@ describe('isHeadingLine', () => {
     }
   })
 
+  it('accepts all-capitals lines with a trailing period and dated letter headings', () => {
+    for (const t of ['THE EDITOR TO THE READER.', 'MAY 4.', 'BOOK II.', 'JANUARY 8, 1772.', 'Am 4. Mai 1771', 'Den 17. Mai', 'May 4.', '4th May, 1771', 'Abends', 'The same evening.']) {
+      expect(isHeadingLine(t), t).toBe(true)
+    }
+  })
+
   it('rejects prose, dialogue and long lines', () => {
-    for (const t of [prose, 'Ja.', '»Komm!«', '“Really and truly?”', 'Warum war das so sehr schwer?', 'a'.repeat(61)]) {
+    for (const t of [prose, 'Ja.', 'NEIN!', 'A.', '»Komm!«', '“Really and truly?”', 'Warum war das so sehr schwer?', 'a'.repeat(61), 'Am 4. Mai ging er fort.']) {
       expect(isHeadingLine(t), t).toBe(false)
     }
   })

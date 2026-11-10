@@ -3,7 +3,8 @@
  * spine item is front matter, body text or back matter.
  *
  * Step 5 scope: class-name hints, the heading heuristic, keyword and length rules, and a
- * position pass that turns "matter" into front/back. Step 5b adds the book-relative
+ * position pass that turns "matter" into front/back. Step 7 (`align/structure.ts`) reuses the
+ * heading heuristic to split plain text into chapters. Step 5b adds the book-relative
  * proper-noun density rule and the cross-edition chapter-mapping DP.
  */
 
@@ -26,11 +27,37 @@ const QUOTE_START = /^[„“"»«‚‘']/
 /** Explicit chapter-style labels, accepted even with a trailing period ("Kapitel 1.", "II."). */
 const CHAPTER_LABEL =
   /^(?:(?:chapter|kapitel|part|teil|book|buch|abschnitt|section)\s+[\w.]+|[ivxlcdm]+\.?|\d{1,3}\.?|(?:erstes|zweites|drittes|viertes|fünftes|sechstes|siebtes|siebentes|achtes|neuntes|zehntes|elftes|zwölftes)\s+(?:kapitel|buch))$/i
+/**
+ * A short line set entirely in capitals ("THE EDITOR TO THE READER.", "MAY 4."): a heading
+ * even with a trailing period. Needs two adjacent capitals so "I." style labels and single
+ * initials are left to the other rules; shouted dialogue ("NEIN!") is excluded by its mark.
+ */
+const ALL_CAPS = /^(?=.*[A-ZÄÖÜ]{2})[A-ZÄÖÜ0-9][A-ZÄÖÜ0-9 ,'’:.\-–—]*$/
+const MONTH_DE =
+  'jan(?:uar|ner)?|jänner|feb(?:ruar)?|märz|apr(?:il)?|mai|jun(?:i|ius)?|jul(?:i|ius)?|aug(?:ust)?|sept?(?:ember)?|okt(?:ober)?|nov(?:ember)?|dez(?:ember)?'
+const MONTH_EN =
+  'jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?'
+/**
+ * Dated letter or diary headings, which epistolary novels use as chapter breaks:
+ * "Am 4. Mai 1771", "Den 17. Mai", "May 4.", "4th May, 1771", "Abends", "The same evening."
+ */
+const DATE_LINE = new RegExp(
+  String.raw`^(?:(?:am|den|vom)?\s*\d{1,2}\.\s*(?:${MONTH_DE})\.?(?:\s+\d{4})?` +
+    String.raw`|(?:${MONTH_EN})\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?` +
+    String.raw`|\d{1,2}(?:st|nd|rd|th)?\s+(?:${MONTH_EN})\.?(?:,?\s+\d{4})?` +
+    String.raw`|(?:morgens|mittags|nachmittags|abends|nachts|am abend|the same (?:evening|day|night)|evening|night|later))\.?$`,
+  'i',
+)
 
-/** True when a paragraph reads like a heading line rather than prose. */
+/**
+ * True when a paragraph reads like a heading line rather than prose: a chapter label, a
+ * dated letter heading, a short all-capitals line, or any short line without terminal
+ * punctuation that does not open with a quotation mark.
+ */
 export function isHeadingLine(text: string): boolean {
   if (CHAPTER_LABEL.test(text)) return true
   if (text.length > MAX_HEADING_CHARS) return false
+  if (DATE_LINE.test(text) || ALL_CAPS.test(text)) return true
   if (PROSE_END.test(text)) return false
   if (QUOTE_START.test(text)) return false
   return true
