@@ -1,7 +1,8 @@
-/** Preact bindings for Dexie's `liveQuery`: a component re-renders when the rows it reads change. */
+/** Preact bindings for Dexie's `liveQuery` and the alignment job queue. */
 
 import { liveQuery } from 'dexie'
 import { useEffect, useState } from 'preact/hooks'
+import { getAlignmentJobs, subscribeAlignmentJobs, type AlignmentJob } from '../align/jobs.ts'
 import type { Book } from './db.ts'
 import { listBooks } from './books.ts'
 
@@ -24,4 +25,14 @@ export function useLiveQuery<T>(querier: () => Promise<T>, deps: readonly unknow
 /** All books, newest first; `undefined` while loading. */
 export function useBooks(): Book[] | undefined {
   return useLiveQuery(() => listBooks(), [])
+}
+
+/** The alignment jobs queued or running, by book id; re-renders on every progress tick. */
+export function useAlignmentJobs(): ReadonlyMap<string, AlignmentJob> {
+  const [jobs, setJobs] = useState(getAlignmentJobs)
+  useEffect(() => {
+    setJobs(getAlignmentJobs())
+    return subscribeAlignmentJobs(setJobs)
+  }, [])
+  return jobs
 }

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'preact/hooks'
+import { startAlignment } from '../align/jobs.ts'
 import { ImportError, importFile, type ImportedText } from '../import/file.ts'
 import type { Lang } from '../import/types.ts'
 import { requestPersistentStorage } from '../pwa/register.ts'
@@ -78,7 +79,9 @@ export function AddBookSheet({ open, onClose }: Props) {
     setError(null)
     try {
       await requestPersistentStorage()
-      await addBook({ title, author, de, en })
+      const book = await addBook({ title, author, de, en })
+      // Alignment runs in the background; the cover shows its progress.
+      void startAlignment(book.id)
       reset()
       onClose()
     } catch (err) {

@@ -51,6 +51,7 @@ export async function addBook(input: NewBook, db: InterlinearDB = sharedDb()): P
     created: Date.now(),
     cover: coverColours(title),
     sources: { de: sourceInfo(input.de), en: sourceInfo(input.en) },
+    alignment: { status: 'pending', updated: Date.now() },
   }
   await db.transaction('rw', [db.books, db.paragraphs], async () => {
     await db.books.add(book)

@@ -4,6 +4,8 @@
  */
 
 import { Dexie, type EntityTable, type Table } from 'dexie'
+import type { AlignStats, ChapterMap } from '../align/pipeline.ts'
+import type { InducedPair } from '../align/lexicon.ts'
 import type { Lang, SectionKind } from '../import/types.ts'
 
 export const DB_NAME = 'interlinear'
@@ -38,6 +40,25 @@ export interface SectionMeta {
   paraCount: number
 }
 
+/**
+ * Where a book's alignment stands. `pending` right after import, `aligning` while the worker
+ * runs (an interrupted run leaves it there and is resumed on the next launch), `ready` once
+ * `sentences` and `beads` hold the result, `failed` with the error until the user retries.
+ */
+export type AlignmentStatus = 'pending' | 'aligning' | 'ready' | 'failed'
+
+export interface AlignmentState {
+  status: AlignmentStatus
+  /** Unix ms of the last status change. */
+  updated: number
+  error?: string
+  /** Chapters of both editions and how they were paired; set once `ready`. */
+  chapters?: ChapterMap
+  /** The book-specific lexicon pass two learned; set once `ready`. */
+  lexicon?: InducedPair[]
+  stats?: AlignStats
+}
+
 export interface Book {
   id: string
   title: string
@@ -48,6 +69,8 @@ export interface Book {
   created: number
   cover: CoverColours
   sources: Record<Lang, SourceInfo>
+  /** Missing on books imported before step 12; treated as `pending`. */
+  alignment?: AlignmentState
 }
 
 export interface ParagraphRow {

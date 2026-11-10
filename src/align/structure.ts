@@ -197,13 +197,16 @@ export function deletionCost(chars: number, scale = DEFAULT_DELETION_SCALE): num
   return chars / scale
 }
 
+/** English-to-German length ratio from two totals, clamped to [0.5, 2]; 1 when either is empty. */
+export function ratioOf(deChars: number, enChars: number): number {
+  if (deChars === 0 || enChars === 0) return 1
+  return Math.min(2, Math.max(0.5, enChars / deChars))
+}
+
 /** Character-length ratio of the English side to the German side, clamped to a sane range. */
 export function estimateRatio(de: readonly { text: string }[], en: readonly { text: string }[]): number {
   const sum = (ps: readonly { text: string }[]) => ps.reduce((n, p) => n + p.text.length, 0)
-  const d = sum(de)
-  const e = sum(en)
-  if (d === 0 || e === 0) return 1
-  return Math.min(2, Math.max(0.5, e / d))
+  return ratioOf(sum(de), sum(en))
 }
 
 /**
@@ -217,14 +220,32 @@ export function alignParagraphs(
   en: readonly { text: string }[],
   options: LengthModelOptions = {},
 ): ParagraphBead[] {
-  const n = de.length
-  const m = en.length
-  if (n === 0 && m === 0) return []
+  if (de.length === 0 && en.length === 0) return []
   const ratio = options.ratio ?? estimateRatio(de, en)
+  return alignLengths(
+    de.map((p) => p.text.length),
+    en.map((p) => p.text.length),
+    { ...options, ratio },
+  )
+}
+
+/**
+ * The paragraph DP over bare lengths. {@link alignParagraphs} is this over paragraph character
+ * counts; the pipeline of step 12 also runs it over whole chapters (as shares of the book) to
+ * pair the chapters of two editions whose counts differ.
+ */
+export function alignLengths(
+  lenDe: readonly number[],
+  lenEn: readonly number[],
+  options: LengthModelOptions = {},
+): ParagraphBead[] {
+  const n = lenDe.length
+  const m = lenEn.length
+  if (n === 0 && m === 0) return []
+  const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0)
+  const ratio = options.ratio ?? ratioOf(sum(lenDe), sum(lenEn))
   const variance = options.variance ?? DEFAULT_VARIANCE
   const deletionScale = options.deletionScale ?? DEFAULT_DELETION_SCALE
-  const lenDe = de.map((p) => p.text.length)
-  const lenEn = en.map((p) => p.text.length)
   const moveCosts = MOVES.map(([, , prior]) => -Math.log(prior))
 
   // cost[i * width + j]: cheapest alignment of the first i German and first j English paragraphs.
