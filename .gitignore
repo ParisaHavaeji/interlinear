@@ -1,0 +1,31 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Dictionary shards are built in CI (tools/build-dict), never committed
+public/dict/
+
+# Local test EPUBs (see plan.md §1.1). Kept out of the public repo for now;
+# remove this line if you decide to commit them.
+Input/
