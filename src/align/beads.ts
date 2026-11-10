@@ -34,6 +34,7 @@ import {
   type Lexicon,
   type PreparedSentence,
 } from './features.ts'
+import type { SentenceEmbeddings } from './neural.ts'
 import type { ParagraphSentence } from './sentences.ts'
 
 /** One aligned group of sentences: positions into the two lists given to {@link alignSentences}. */
@@ -257,7 +258,8 @@ export interface AlignedBead {
  * prepared with the lexicon (the dictionary of step 22, or an induced book lexicon of step 11);
  * pass `null` to align on length, cognates and punctuation alone. Unless given, the length
  * ratio is estimated over all the sentences passed, so a verbose translator is absorbed
- * book-wide rather than per block.
+ * book-wide rather than per block. `embeddings` (Layer D, step 15) adds the language model's
+ * sentence vectors, keyed by `ParagraphSentence.idx`, so beads are also priced by meaning.
  */
 export function alignBlocks(
   de: readonly ParagraphSentence[],
@@ -265,9 +267,10 @@ export function alignBlocks(
   blocks: readonly ParagraphBlock[],
   lexicon: Lexicon | null,
   options: AlignOptions = {},
+  embeddings: SentenceEmbeddings | null = null,
 ): AlignedBead[] {
-  const prepDe = de.map((s) => prepareSentence(s.text, 'de', lexicon))
-  const prepEn = en.map((s) => prepareSentence(s.text, 'en'))
+  const prepDe = de.map((s) => prepareSentence(s.text, 'de', lexicon, embeddings?.de[s.idx]))
+  const prepEn = en.map((s) => prepareSentence(s.text, 'en', null, embeddings?.en[s.idx]))
   const ratio = options.ratio ?? estimateSentenceRatio(prepDe, prepEn)
   const byPara = (sentences: readonly ParagraphSentence[]): Map<number, number[]> => {
     const map = new Map<number, number[]>()

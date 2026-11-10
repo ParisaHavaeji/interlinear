@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'preact/hooks'
-import { resumeAlignments, startAlignment, type AlignmentJob } from '../align/jobs.ts'
+import { clearAlignmentError, resumeAlignments, startAlignment, type AlignmentJob } from '../align/jobs.ts'
+import { isPrealignedBook } from '../align/prealigned.ts'
 import { bundleFileName, exportBundle } from '../store/bundle.ts'
 import type { Book } from '../store/db.ts'
 import { useAlignmentJobs, useBooks } from '../store/hooks.ts'
 import { Cover } from '../ui/Cover.tsx'
 import { shareOrDownload } from '../ui/download.ts'
 import { AddBookSheet } from './AddBookSheet.tsx'
+import { RealignSheet } from './RealignSheet.tsx'
 import './library.css'
 
 /** Library tab: Books-style bookshelf grid with an "Add book" sheet. */
@@ -13,6 +15,7 @@ export function Library() {
   const books = useBooks()
   const jobs = useAlignmentJobs()
   const [adding, setAdding] = useState(false)
+  const [realigning, setRealigning] = useState<Book | null>(null)
 
   // Books whose alignment was interrupted by a reload pick up where the queue left off.
   useEffect(() => {
@@ -32,11 +35,12 @@ export function Library() {
         {books === undefined ? null : books.length === 0 ? (
           <EmptyShelf onAdd={() => setAdding(true)} />
         ) : (
-          <Shelf books={books} jobs={jobs} />
+          <Shelf books={books} jobs={jobs} onRealign={setRealigning} />
         )}
       </main>
 
       <AddBookSheet open={adding} onClose={() => setAdding(false)} />
+      <RealignSheet book={realigning} onClose={() => setRealigning(null)} />
     </div>
   )
 }
@@ -58,16 +62,24 @@ const STAGE_LABELS: Record<AlignmentJob['stage'], string> = {
   queued: 'Waiting',
   structure: 'Reading chapters',
   sentences: 'Splitting sentences',
+  model: 'Downloading model',
+  embed: 'Reading with the model',
   pass1: 'Matching sentences',
   pass2: 'Second pass',
   saving: 'Saving',
 }
 
-function Shelf({ books, jobs }: { books: Book[]; jobs: ReadonlyMap<string, AlignmentJob> }) {
+interface ShelfProps {
+  books: Book[]
+  jobs: ReadonlyMap<string, AlignmentJob>
+  onRealign: (book: Book) => void
+}
+
+function Shelf({ books, jobs, onRealign }: ShelfProps) {
   return (
     <ul class="shelf" aria-label="Books">
       {books.map((b) => (
-        <ShelfItem key={b.id} book={b} job={jobs.get(b.id)} />
+        <ShelfItem key={b.id} book={b} job={jobs.get(b.id)} onRealign={onRealign} />
       ))}
     </ul>
   )
@@ -89,10 +101,13 @@ async function exportBook(book: Book): Promise<string | null> {
   }
 }
 
-function ShelfItem({ book, job }: { book: Book; job: AlignmentJob | undefined }) {
+function ShelfItem({ book, job, onRealign }: { book: Book; job: AlignmentJob | undefined; onRealign: (book: Book) => void }) {
   const status = book.alignment?.status ?? 'pending'
   const busy = job !== undefined || status === 'pending' || status === 'aligning'
   const fraction = job?.fraction ?? 0
+  const neural = book.alignment?.stats?.neural === true
+  // A failed re-alignment of a ready book leaves its error here, next to the old, intact beads.
+  const realignError = job === undefined && status === 'ready' ? book.alignment?.error : undefined
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   let note = null
@@ -124,8 +139,9 @@ function ShelfItem({ book, job }: { book: Book; job: AlignmentJob | undefined })
       <div class="shelf-title">{book.title}</div>
       <div class="shelf-author">{book.author}</div>
       {note}
-      {status === 'ready' && (
+      {status === 'ready' && job === undefined && (
         <div class="shelf-note shelf-actions">
+          {neural && <span class="shelf-tag" title="Aligned with the language model">High accuracy</span>}
           <button
             type="button"
             class="link-btn"
@@ -138,7 +154,20 @@ function ShelfItem({ book, job }: { book: Book; job: AlignmentJob | undefined })
           >
             {exporting ? 'Exporting…' : 'Export'}
           </button>
+          {!isPrealignedBook(book) && (
+            <button type="button" class="link-btn" onClick={() => onRealign(book)}>
+              Re-align…
+            </button>
+          )}
           {import.meta.env.DEV && <a href={`#/debug/${encodeURIComponent(book.id)}`}>Debug</a>}
+        </div>
+      )}
+      {realignError && (
+        <div class="shelf-note shelf-note--error" role="alert">
+          Couldn’t re-align: {realignError}{' '}
+          <button type="button" class="link-btn" onClick={() => void clearAlignmentError(book.id)}>
+            Dismiss
+          </button>
         </div>
       )}
       {exportError && (

@@ -265,6 +265,8 @@ function alignmentState(v: unknown, what: string): AlignmentState {
       changedBeads: int(s.changedBeads, `${what}.stats.changedBeads`),
       pairedChapters: int(s.pairedChapters, `${what}.stats.pairedChapters`),
       elapsedMs: num(s.elapsedMs, `${what}.stats.elapsedMs`),
+      // Bundles from before step 15 have no flag: those were classical alignments.
+      neural: s.neural === true,
     }
   }
   return state

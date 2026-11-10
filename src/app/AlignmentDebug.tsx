@@ -180,6 +180,7 @@ function Stats({ book }: { book: Book }) {
     ['learned pairs', String(s.learnedPairs)],
     ['changed in pass two', String(s.changedBeads)],
     ['chapter pairs', String(s.pairedChapters)],
+    ['scoring', s.neural ? 'classical + language model' : 'classical'],
     ['time', `${s.elapsedMs} ms`],
   ]
   return (

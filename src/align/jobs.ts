@@ -17,6 +17,11 @@
  * - Pre-aligned input (step 14, `prealigned.ts`) takes the same path minus the runner: the
  *   result is built from the lines directly and saved, so the shelf shows it as any other
  *   book and an interrupted import resumes the same way.
+ * - A **re-alignment** of a book that is already `ready` (step 15's "Re-align with high
+ *   accuracy", `neural: true`) keeps the book readable: its status stays `ready` and its beads
+ *   stay in place until the new ones are saved in one transaction. If the run fails (offline
+ *   before the model was ever downloaded, say) the old alignment survives and the error is
+ *   recorded on the book for the shelf to show until {@link clearAlignmentError} is called.
  */
 
 import type { Lang, Paragraph } from '../import/types.ts'
@@ -38,9 +43,13 @@ export class AlignmentCancelled extends Error {
   }
 }
 
-/** Runs the pipeline on this thread. For tests and as a fallback where workers are missing. */
+/**
+ * Runs the pipeline on this thread. For tests and as a fallback where workers are missing. It
+ * has no language model, so a neural request is refused rather than quietly aligned classically.
+ */
 export const inlineRunner: Runner = (request, onProgress, signal) => {
   if (signal.aborted) return Promise.reject(new AlignmentCancelled())
+  if (request.neural) return Promise.reject(new Error('The language model runs only in the alignment worker'))
   try {
     return Promise.resolve(alignBook(request, null, onProgress))
   } catch (err) {
@@ -62,6 +71,8 @@ export interface AlignmentJob {
   bookId: string
   stage: AlignStage | 'queued'
   fraction: number
+  /** True for a re-alignment with the language model (step 15). */
+  neural: boolean
 }
 
 type Listener = (jobs: ReadonlyMap<string, AlignmentJob>) => void
@@ -98,6 +109,8 @@ export function subscribeAlignmentJobs(fn: Listener): () => void {
 export interface AlignmentDeps {
   db?: InterlinearDB
   runner?: Runner
+  /** Re-align with the language model (step 15). Needs a runner that can, i.e. the worker. */
+  neural?: boolean
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -172,13 +185,32 @@ async function setStatus(db: InterlinearDB, bookId: string, status: 'aligning' |
   await db.books.update(bookId, { alignment })
 }
 
+/** Record (or, with `undefined`, clear) an error on a book without touching its status. */
+async function setError(db: InterlinearDB, bookId: string, error: string | undefined): Promise<void> {
+  const book = await db.books.get(bookId)
+  if (book?.alignment === undefined) return
+  const alignment: AlignmentState = { ...book.alignment }
+  delete alignment.error
+  if (error !== undefined) alignment.error = error
+  await db.books.update(bookId, { alignment })
+}
+
+/** Dismiss the error a failed re-alignment left on a ready book. */
+export function clearAlignmentError(bookId: string, db: InterlinearDB = sharedDb()): Promise<void> {
+  return setError(db, bookId, undefined)
+}
+
 async function run(bookId: string, entry: Active, db: InterlinearDB, runner: Runner): Promise<void> {
   const { signal } = entry.controller
   const book = await db.books.get(bookId)
   if (book === undefined || signal.aborted) return
-  await setStatus(db, bookId, 'aligning')
+  // A book that is already aligned stays readable while it is re-aligned, and keeps its beads
+  // if the run fails; a first alignment is marked so that a reload can resume it.
+  const keepReady = book.alignment?.status === 'ready'
+  if (!keepReady) await setStatus(db, bookId, 'aligning')
   try {
     const request = await requestFor(book, db)
+    if (entry.job.neural) request.neural = true
     entry.job.stage = 'structure'
     publish()
     const result = isPrealignedBook(book)
@@ -202,8 +234,10 @@ async function run(bookId: string, entry: Active, db: InterlinearDB, runner: Run
   } catch (err) {
     if (err instanceof AlignmentCancelled || signal.aborted) return
     console.error(`Alignment of ${bookId} failed`, err)
+    const message = err instanceof Error ? err.message : String(err)
     try {
-      await setStatus(db, bookId, 'failed', err instanceof Error ? err.message : String(err))
+      if (keepReady) await setError(db, bookId, message)
+      else await setStatus(db, bookId, 'failed', message)
     } catch (inner) {
       console.error(`Could not record the failure of ${bookId}`, inner)
     }
@@ -212,7 +246,8 @@ async function run(bookId: string, entry: Active, db: InterlinearDB, runner: Run
 
 /**
  * Queue a book for alignment and resolve when it has been saved, failed, or been cancelled.
- * Never rejects; failures land in the book's `alignment.error`.
+ * Never rejects; failures land in the book's `alignment.error`. With `deps.neural` the book is
+ * re-aligned with the language model (step 15).
  */
 export function startAlignment(bookId: string, deps: AlignmentDeps = {}): Promise<void> {
   const have = active.get(bookId)
@@ -220,7 +255,7 @@ export function startAlignment(bookId: string, deps: AlignmentDeps = {}): Promis
   const db = deps.db ?? sharedDb()
   const runner = deps.runner ?? defaultRunner
   const controller = new AbortController()
-  const entry = { job: { bookId, stage: 'queued', fraction: 0 }, controller } as Active
+  const entry = { job: { bookId, stage: 'queued', fraction: 0, neural: deps.neural === true }, controller } as Active
   entry.promise = queue
     .then(() => run(bookId, entry, db, runner))
     .finally(() => {
@@ -247,7 +282,9 @@ export function needsAlignment(book: Book): boolean {
 
 /**
  * Queue every book that is not aligned yet, except failed ones (those wait for a tap on
- * Retry, so a bug cannot loop a phone forever). Called once when the Library mounts.
+ * Retry, so a bug cannot loop a phone forever). Called once when the Library mounts. A neural
+ * re-alignment cut short by a reload is not resumed: its book is still `ready` with its old
+ * beads, and the user can tap Re-align again.
  */
 export async function resumeAlignments(deps: AlignmentDeps = {}): Promise<void> {
   const db = deps.db ?? sharedDb()

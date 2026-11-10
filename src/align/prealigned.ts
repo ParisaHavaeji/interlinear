@@ -143,6 +143,7 @@ export function prealignedResult(de: readonly Paragraph[], en: readonly Paragrap
       changedBeads: 0,
       pairedChapters: pairs.filter((p) => p.de.length > 0 && p.en.length > 0).length,
       elapsedMs: Math.round(performance.now() - t0),
+      neural: false,
     },
   }
 }

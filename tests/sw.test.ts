@@ -1,8 +1,39 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { renderServiceWorker, shellPrecacheList } from '../tools/pwa-sw.ts'
+import { isPrecachable, renderServiceWorker, shellFiles, shellPrecacheList, type OutputFile } from '../tools/pwa-sw.ts'
 
 const template = readFileSync(new URL('../src/pwa/sw.js', import.meta.url), 'utf8')
+
+describe('shell files', () => {
+  it('follows static imports from the entry and leaves lazily imported chunks out', () => {
+    const bundle: Record<string, OutputFile> = {
+      'assets/index-1.js': { type: 'chunk', isEntry: true, imports: ['assets/preact-2.js'] },
+      'assets/preact-2.js': { type: 'chunk', imports: [] },
+      'assets/worker-3.js': { type: 'chunk', isEntry: true, imports: [] },
+      'assets/neural-model-4.js': { type: 'chunk', imports: ['assets/transformers-5.js'] },
+      'assets/transformers-5.js': { type: 'chunk', imports: [] },
+      'assets/index-6.css': { type: 'asset' },
+      'assets/ort-wasm-simd-threaded-7.wasm': { type: 'asset' },
+    }
+    const files = shellFiles(bundle)
+    expect(files).toEqual(
+      expect.arrayContaining(['assets/index-1.js', 'assets/preact-2.js', 'assets/worker-3.js', 'assets/index-6.css', 'assets/ort-wasm-simd-threaded-7.wasm']),
+    )
+    expect(files).not.toContain('assets/neural-model-4.js')
+    expect(files).not.toContain('assets/transformers-5.js')
+  })
+
+  it('never precaches the ONNX runtime wasm, its glue script, the lazy model chunks, or source maps', () => {
+    expect(isPrecachable('assets/index-1.js')).toBe(true)
+    expect(isPrecachable('assets/worker-CEk9HgiG.js')).toBe(true)
+    expect(isPrecachable('assets/neural-model-QHcngEn0.js')).toBe(false)
+    expect(isPrecachable('assets/neural-wasm-Y3oN5E-B.js')).toBe(false)
+    expect(isPrecachable('assets/ort-wasm-simd-threaded-7.wasm')).toBe(false)
+    expect(isPrecachable('assets/ort-wasm-simd-threaded-8.mjs')).toBe(false)
+    expect(isPrecachable('assets/a.js.map')).toBe(false)
+    expect(shellPrecacheList('/', ['assets/ort-wasm-simd-threaded-7.wasm', 'assets/a.js'])).not.toContain('/assets/ort-wasm-simd-threaded-7.wasm')
+  })
+})
 
 describe('shell precache list', () => {
   it('includes the shell document, built files and static shell files', () => {

@@ -18,6 +18,12 @@
  * 4. **Pass two** (55–95%). The induced lexicon of step 11 from the confident beads of pass
  *    one, then the DP again over dictionary plus lexicon. Skipped when nothing was learned.
  *
+ * The pipeline is cut in two halves, {@link planBook} (stages 1 and 2) and {@link alignPlanned}
+ * (stages 3 and 4), because the neural re-alignment of step 15 needs the sentences of the paired
+ * chapters *before* the bead DP runs: the worker plans, embeds {@link pairedSentences} with the
+ * language model, then passes the vectors into `alignPlanned`, which hands them to the DP as the
+ * semantic feature. {@link alignBook} is the two halves back to back.
+ *
  * Chunking by chapter pair changes nothing: each block is aligned on its own, so the beads
  * equal those of `alignTwoPass` over the same blocks and ratio (the pipeline test checks this).
  *
@@ -32,6 +38,7 @@ import type { Paragraph } from '../import/types.ts'
 import { alignBlocks, type AlignedBead, type AlignOptions, type ParagraphBlock } from './beads.ts'
 import type { Lexicon } from './features.ts'
 import { induceLexicon, mergeLexicons, type InducedPair, type InduceOptions } from './lexicon.ts'
+import type { SentenceEmbeddings } from './neural.ts'
 import { splitParagraphs, type ParagraphSentence } from './sentences.ts'
 import { alignLengths, alignParagraphs, chaptersOf, ratioOf, type Chapter, type SectionRange } from './structure.ts'
 
@@ -53,9 +60,14 @@ export interface AlignRequest {
   de: AlignSide
   en: AlignSide
   options?: AlignBookOptions
+  /**
+   * Re-align with high accuracy (step 15): embed the sentences with the language model and
+   * score beads by meaning too. Only the worker can honour this; see `worker.ts`.
+   */
+  neural?: boolean
 }
 
-export type AlignStage = 'structure' | 'sentences' | 'pass1' | 'pass2' | 'saving'
+export type AlignStage = 'structure' | 'sentences' | 'model' | 'embed' | 'pass1' | 'pass2' | 'saving'
 
 export interface AlignProgress {
   stage: AlignStage
@@ -106,6 +118,8 @@ export interface AlignStats {
   /** Chapter pairs with text on both sides. */
   pairedChapters: number
   elapsedMs: number
+  /** True when the beads were also scored by the language model (step 15). */
+  neural: boolean
 }
 
 export interface AlignResult {
@@ -166,10 +180,26 @@ function meta(c: Chapter): ChapterMeta {
 // The pipeline
 
 /** The paragraph blocks of one chapter pair and the `Paragraph.idx` sets they cover. */
-interface PairWork {
+export interface PairWork {
   blocks: ParagraphBlock[]
   deParas: Set<number>
   enParas: Set<number>
+}
+
+/** What {@link planBook} hands {@link alignPlanned}: everything before the bead DP. */
+export interface BookPlan {
+  chapters: ChapterMap
+  /** The paragraph blocks of every chapter pair with text on both sides, in reading order. */
+  work: PairWork[]
+  /** Every sentence of both sides; position equals `ParagraphSentence.idx`. */
+  sentences: { de: ParagraphSentence[]; en: ParagraphSentence[] }
+  /** The sentences of each entry of `work`. */
+  perPair: { de: ParagraphSentence[]; en: ParagraphSentence[] }[]
+  /** The bead DP options with the book-wide length ratio filled in. */
+  options: AlignOptions
+  induce: InduceOptions | undefined
+  /** `performance.now()` when planning began, for {@link AlignStats.elapsedMs}. */
+  startedAt: number
 }
 
 /** Beads of `a` that have no identical bead in `b`. */
@@ -181,12 +211,11 @@ function countChanged(a: readonly AlignedBead[], b: readonly AlignedBead[]): num
 }
 
 /**
- * Align a book. `dictionary` is the shipped dictionary once Phase 4 exists, `null` until then.
- * `onProgress` is called after every chapter pair of every stage, with a fraction that only
- * grows. Throws nothing of its own; an empty side yields no beads, not an error.
+ * Stages 1 and 2: chapters, chapter pairs, paragraph blocks, sentences, and the length ratio.
+ * Reports progress from 0 to 0.15. Throws nothing of its own; an empty side plans no work.
  */
-export function alignBook(request: AlignRequest, dictionary: Lexicon | null = null, onProgress?: ProgressCallback): AlignResult {
-  const t0 = performance.now()
+export function planBook(request: AlignRequest, onProgress?: ProgressCallback): BookPlan {
+  const startedAt = performance.now()
   const report = (stage: AlignStage, fraction: number) => onProgress?.({ stage, fraction })
   const { induce, ...alignOptions } = request.options ?? {}
 
@@ -226,13 +255,49 @@ export function alignBook(request: AlignRequest, dictionary: Lexicon | null = nu
       perPair.reduce((n, p) => n + chars(p.de), 0),
       perPair.reduce((n, p) => n + chars(p.en), 0),
     )
-  const options: AlignOptions = { ...alignOptions, ratio }
+
+  return {
+    chapters: { de: chaptersDe.map(meta), en: chaptersEn.map(meta), pairs },
+    work,
+    sentences: { de: sentDe, en: sentEn },
+    perPair,
+    options: { ...alignOptions, ratio },
+    induce,
+    startedAt,
+  }
+}
+
+/**
+ * The sentences that can end up in a bead: those of the paired chapters, in reading order on
+ * each side. What the language model of step 15 embeds; front matter and unmatched chapters
+ * are left out since no bead will ask about them.
+ */
+export function pairedSentences(plan: BookPlan): { de: ParagraphSentence[]; en: ParagraphSentence[] } {
+  return { de: plan.perPair.flatMap((p) => p.de), en: plan.perPair.flatMap((p) => p.en) }
+}
+
+/**
+ * Stages 3 and 4 over a plan: pass one on the dictionary (`null` until Phase 4), pass two on
+ * the dictionary plus the lexicon the book taught. `embeddings` are the sentence vectors of
+ * step 15, keyed by `ParagraphSentence.idx`; with them the DP also scores beads by meaning and
+ * the stats say so. Reports progress from 0.15 to 0.95.
+ */
+export function alignPlanned(
+  plan: BookPlan,
+  dictionary: Lexicon | null = null,
+  onProgress?: ProgressCallback,
+  embeddings: SentenceEmbeddings | null = null,
+): AlignResult {
+  const report = (stage: AlignStage, fraction: number) => onProgress?.({ stage, fraction })
+  const { work, perPair, options, induce } = plan
+  const sentDe = plan.sentences.de
+  const sentEn = plan.sentences.en
 
   const pass = (stage: 'pass1' | 'pass2', from: number, to: number, lexicon: Lexicon | null): AlignedBead[] => {
     const out: AlignedBead[] = []
     report(stage, from)
     for (const [k, w] of work.entries()) {
-      out.push(...alignBlocks(perPair[k].de, perPair[k].en, w.blocks, lexicon, options))
+      out.push(...alignBlocks(perPair[k].de, perPair[k].en, w.blocks, lexicon, options, embeddings))
       report(stage, from + ((to - from) * (k + 1)) / work.length)
     }
     report(stage, to)
@@ -255,14 +320,30 @@ export function alignBook(request: AlignRequest, dictionary: Lexicon | null = nu
     learnedPairs: learned.pairs.length,
     changedBeads: beads === firstPass ? 0 : countChanged(beads, firstPass),
     pairedChapters: work.length,
-    elapsedMs: Math.round(performance.now() - t0),
+    elapsedMs: Math.round(performance.now() - plan.startedAt),
+    neural: embeddings !== null,
   }
 
   return {
     sentences: { de: sentDe, en: sentEn },
     beads,
-    chapters: { de: chaptersDe.map(meta), en: chaptersEn.map(meta), pairs },
+    chapters: plan.chapters,
     lexicon: [...learned.pairs],
     stats,
   }
+}
+
+/**
+ * Align a book. `dictionary` is the shipped dictionary once Phase 4 exists, `null` until then;
+ * `embeddings` are the language model's sentence vectors when a caller has them (the worker
+ * does for a neural re-align). `onProgress` is called after every chapter pair of every stage,
+ * with a fraction that only grows. Throws nothing of its own; an empty side yields no beads.
+ */
+export function alignBook(
+  request: AlignRequest,
+  dictionary: Lexicon | null = null,
+  onProgress?: ProgressCallback,
+  embeddings: SentenceEmbeddings | null = null,
+): AlignResult {
+  return alignPlanned(planBook(request, onProgress), dictionary, onProgress, embeddings)
 }

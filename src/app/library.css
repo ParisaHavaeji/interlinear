@@ -394,7 +394,14 @@
 
 .shelf-actions {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.shelf-actions .link-btn,
+.shelf-actions a {
+  white-space: nowrap;
 }
 
 .shelf-actions a {
@@ -405,6 +412,36 @@
 .link-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Books aligned with the language model (plan.md step 15) carry a small tag. */
+.shelf-tag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+  background: var(--bg-elev);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+/* --- Re-align sheet ------------------------------------------------------- */
+
+.sheet-text {
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--fg-2);
+  margin: 0 0 12px;
+}
+
+.row--static {
+  cursor: default;
+}
+
+.row--static:active {
+  background: none;
 }
 
 /* --- Bundle row in the Add Book sheet ------------------------------------- */

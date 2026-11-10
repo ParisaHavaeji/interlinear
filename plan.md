@@ -359,6 +359,7 @@ Each step ends in something you can open in a browser and check.
 | 6 | Stack | Vite + Preact + TypeScript, hand-written CSS, Dexie, JSZip, Vitest |
 | 7 | Hosting | GitHub Pages via Actions; dictionary built in CI |
 | 8 | Bookmarks & export | Sentences + words; JSON + Markdown + Anki TSV via share sheet |
+| 9 | Neural re-align (step 15) | `Xenova/paraphrase-multilingual-MiniLM-L12-v2`, int8, via transformers.js on the WASM backend, in the same alignment worker as Layer C; it adds one semantic feature to the bead DP rather than replacing it. The model weights are kept in Cache Storage by transformers.js itself (`transformers-cache`), which also works before the service worker is active and in dev; the ONNX runtime's `.wasm` is served from our own origin and cached by the service worker on first use. A failed re-align leaves the previous alignment in place. |
 
 ## 5. Build order
 

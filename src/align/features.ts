@@ -17,8 +17,13 @@
  * 4. **Punctuation shape** — the terminal mark, whether the bead opens with dialogue quotes and
  *    whether it contains a colon: three traits translators keep, each worth a third.
  *
+ * 5. **Semantic similarity** (Layer D, step 15; `neural.ts`) — present only when the sentences
+ *    carry embedding vectors from the language model: the cosine between the pooled vectors of
+ *    the two sides, in [0, 1]. Beads whose sentences have no vector get no such term, so a
+ *    classical alignment is unchanged by the feature's existence.
+ *
  * Sentences are prepared once ({@link prepareSentence}) so the DP, which prices many beads
- * per sentence, only merges precomputed token sets. {@link combinedCost} turns the four signals
+ * per sentence, only merges precomputed token sets. {@link combinedCost} turns the signals
  * into one cost with default weights checked against the gold files (see {@link DEFAULT_WEIGHTS}).
  *
  * The dictionary of Phase 4 is not built yet, so lookup goes through the {@link Lexicon}
@@ -28,6 +33,7 @@
  */
 
 import type { Lang } from '../import/types.ts'
+import { SEMANTIC_WEIGHT, sideSimilarity } from './neural.ts'
 import { deletionCost, lengthCost } from './structure.ts'
 
 // ---------------------------------------------------------------------------------------------
@@ -230,6 +236,8 @@ export interface PreparedSentence {
   /** Capitalised, non-initial content words, folded: proper-noun candidates. */
   capitalised: Set<string>
   shape: Shape
+  /** Unit sentence embedding from the language model (Layer D); absent in a classical run. */
+  vector?: Float32Array
 }
 
 const OPENING_QUOTE = /^[„“"»«‚‘'(\[]/u
@@ -249,8 +257,9 @@ export function shapeOf(text: string): Shape {
 /**
  * Precompute everything bead scoring needs for one sentence. The lexicon is consulted for
  * German sentences only; pass `null` when there is none (features then rely on cognates).
+ * `vector` is the sentence's embedding when the language model has run (step 15).
  */
-export function prepareSentence(text: string, lang: Lang, lexicon: Lexicon | null = null): PreparedSentence {
+export function prepareSentence(text: string, lang: Lang, lexicon: Lexicon | null = null, vector?: Float32Array): PreparedSentence {
   const content: string[] = []
   const stems: string[] = []
   const glosses: string[][] = []
@@ -274,7 +283,9 @@ export function prepareSentence(text: string, lang: Lang, lexicon: Lexicon | nul
     glosses.push(lang === 'de' && lexicon !== null ? glossWords(lexicon.glosses(t.text)) : [])
     if (!t.initial && /^\p{Lu}/u.test(t.text)) capitalised.add(folded)
   }
-  return { lang, chars: text.length, content, stems, glosses, numbers, capitalised, shape: shapeOf(text) }
+  const prepared: PreparedSentence = { lang, chars: text.length, content, stems, glosses, numbers, capitalised, shape: shapeOf(text) }
+  if (vector !== undefined) prepared.vector = vector
+  return prepared
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -434,6 +445,29 @@ function beadShape(side: readonly PreparedSentence[]): Shape {
   }
 }
 
+/** The vectors of a side, or `null` when any of its sentences has none. */
+function vectorsOf(side: readonly PreparedSentence[]): Float32Array[] | null {
+  const out: Float32Array[] = []
+  for (const s of side) {
+    if (s.vector === undefined) return null
+    out.push(s.vector)
+  }
+  return out
+}
+
+/**
+ * Semantic similarity of a bead's two sides from their embedding vectors (Layer D): the cosine
+ * of the pooled sides in [0, 1]; zero for a one-sided bead, whose text translates nothing; and
+ * `undefined` when a sentence involved was not embedded, so the bead is scored classically.
+ */
+export function semanticSimilarity(de: readonly PreparedSentence[], en: readonly PreparedSentence[]): number | undefined {
+  const vd = vectorsOf(de)
+  const ve = vectorsOf(en)
+  if (vd === null || ve === null) return undefined
+  if (de.length === 0 || en.length === 0) return 0
+  return sideSimilarity(vd, ve)
+}
+
 // ---------------------------------------------------------------------------------------------
 // Beads
 
@@ -446,6 +480,8 @@ export interface BeadFeatures {
   cognate: number
   /** Punctuation-shape agreement in [0, 1]. */
   punctuation: number
+  /** Embedding cosine in [0, 1] (Layer D); absent when the sentences carry no vectors. */
+  semantic?: number
 }
 
 export interface FeatureOptions {
@@ -469,13 +505,18 @@ export function beadFeatures(
     de.length === 0 || en.length === 0
       ? deletionCost(deChars + enChars, options.deletionScale)
       : lengthCost(deChars, enChars, options.ratio, options.variance)
-  if (de.length === 0 || en.length === 0) return { length, lexical: 0, cognate: 0, punctuation: 0 }
-  return {
-    length,
-    lexical: lexicalOverlap(de, en),
-    cognate: cognateMatches(de, en).score,
-    punctuation: punctuationShape(de, en),
-  }
+  const semantic = semanticSimilarity(de, en)
+  const features: BeadFeatures =
+    de.length === 0 || en.length === 0
+      ? { length, lexical: 0, cognate: 0, punctuation: 0 }
+      : {
+          length,
+          lexical: lexicalOverlap(de, en),
+          cognate: cognateMatches(de, en).score,
+          punctuation: punctuationShape(de, en),
+        }
+  if (semantic !== undefined) features.semantic = semantic
+  return features
 }
 
 /** Nats of penalty for a total lack of each kind of evidence. */
@@ -483,6 +524,8 @@ export interface FeatureWeights {
   lexical: number
   cognate: number
   punctuation: number
+  /** For the semantic feature of Layer D; only beads with embedded sentences pay it. Default {@link SEMANTIC_WEIGHT}. */
+  semantic?: number
 }
 
 /**
@@ -493,7 +536,7 @@ export interface FeatureWeights {
  * without a dictionary; at lexical 3 and scale 100 Werther was 92.6%. The remaining Werther
  * misses are a dropped sentence and a sentence pair the translator reshuffled.
  */
-export const DEFAULT_WEIGHTS: FeatureWeights = { lexical: 5, cognate: 1.5, punctuation: 0.5 }
+export const DEFAULT_WEIGHTS: FeatureWeights = { lexical: 5, cognate: 1.5, punctuation: 0.5, semantic: SEMANTIC_WEIGHT }
 
 /**
  * One cost in nats for a bead: the length cost plus, for each overlap signal, its weight times
@@ -502,9 +545,11 @@ export const DEFAULT_WEIGHTS: FeatureWeights = { lexical: 5, cognate: 1.5, punct
  * the scaling a 2-2 bead would pay for missing evidence once where two 1-1 beads pay twice,
  * and the sentence DP would merge everything. A one-sided bead pays all three in full for its
  * half pair, so dropping a sentence still costs more than matching it to anything that shares
- * a word.
+ * a word. The semantic term joins the sum only for beads that have it (see
+ * {@link semanticSimilarity}), with weight `w.semantic` (default {@link SEMANTIC_WEIGHT}).
  */
 export function combinedCost(f: BeadFeatures, w: FeatureWeights = DEFAULT_WEIGHTS, size = 1): number {
-  const missing = w.lexical * (1 - f.lexical) + w.cognate * (1 - f.cognate) + w.punctuation * (1 - f.punctuation)
+  let missing = w.lexical * (1 - f.lexical) + w.cognate * (1 - f.cognate) + w.punctuation * (1 - f.punctuation)
+  if (f.semantic !== undefined) missing += (w.semantic ?? SEMANTIC_WEIGHT) * (1 - f.semantic)
   return f.length + size * missing
 }

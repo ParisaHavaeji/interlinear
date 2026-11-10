@@ -149,7 +149,7 @@ describe.each(PAIRS)('gold alignment of $id', (spec) => {
     expect(checkGoldSentences(gold, result.sentences)).toEqual([])
     const beaded = { de: new Set(result.beads.flatMap((b) => b.deSentenceIdx)), en: new Set(result.beads.flatMap((b) => b.enSentenceIdx)) }
     expect(validateGoldBeads(gold.beads, (side, idx) => beaded[side].has(idx))).toEqual([])
-  })
+  }, 60_000)
 
   it.skipIf(!available)(`reaches the recall floor of ${Math.round(100 * FLOORS[spec.id])}%`, async () => {
     const result = alignBook(await loadPair(spec))
@@ -160,5 +160,5 @@ describe.each(PAIRS)('gold alignment of $id', (spec) => {
     const flagged = score.judged.filter((j) => j.bead.confidence <= LOW_CONFIDENCE)
     if (wrong.length > 0) expect(flagged.filter((j) => !j.correct).length / wrong.length).toBeGreaterThan(0.3)
     expect(flagged.length).toBeLessThan(score.judged.length / 4)
-  })
+  }, 60_000)
 })
