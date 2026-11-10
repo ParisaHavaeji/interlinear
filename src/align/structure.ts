@@ -8,7 +8,7 @@
  *    (step 5b) pairs across the two editions and inside which all further alignment happens.
  *
  * 2. Paragraph alignment inside one chapter pair: Gale–Church dynamic programming over paragraph
- *    character lengths with 1-1, 1-2, 2-1, 1-0 and 0-1 moves (deletions priced linearly in
+ *    character lengths with 1-1, 1-2, 2-1, 1-3, 3-1, 1-4, 4-1, 1-0 and 0-1 moves (deletions priced linearly in
  *    length rather than by the normal tail, see {@link deletionCost}). Translators keep
  *    paragraphs far more faithfully than sentences, so these beads bound the sentence DP of
  *    step 10.
@@ -120,9 +120,9 @@ export function chaptersOf(text: { paragraphs: readonly Paragraph[]; sections: r
 
 /** One aligned group of paragraphs: positions into the two lists given to {@link alignParagraphs}. */
 export interface ParagraphBead {
-  /** Indices of the German paragraphs in this bead (0, 1 or 2 of them). */
+  /** Indices of the German paragraphs in this bead (0 to 4 of them; both sides never exceed 5 together). */
   de: number[]
-  /** Indices of the English paragraphs in this bead (0, 1 or 2 of them). */
+  /** Indices of the English paragraphs in this bead (0 to 4 of them). */
   en: number[]
   /** Cost of this bead in nats: length fit ({@link lengthCost} or {@link deletionCost}) plus the move's prior. */
   cost: number
@@ -145,13 +145,23 @@ const DEFAULT_VARIANCE = 6.8
 /** A dropped paragraph costs one nat per this many characters, on top of the move's prior. */
 const DEFAULT_DELETION_SCALE = 100
 
-/** Move table: [German paragraphs consumed, English paragraphs consumed, prior probability]. */
+/**
+ * Move table: [German paragraphs consumed, English paragraphs consumed, prior probability].
+ * Gale & Church's priors for 1-1, 1-0, 0-1, 2-1 and 1-2, plus 3-1, 1-3, 4-1 and 1-4 with priors
+ * falling by about a factor of four per extra paragraph: a translator who runs four short
+ * paragraphs together (Boylan does, in Werther) must be met with one bead, since the only
+ * alternative under a 2-1 cap is a run of one-sided beads that misplaces every sentence in it.
+ */
 const MOVES: readonly (readonly [number, number, number])[] = [
   [1, 1, 0.89],
   [1, 0, 0.0099],
   [0, 1, 0.0099],
   [2, 1, 0.089],
   [1, 2, 0.089],
+  [3, 1, 0.02],
+  [1, 3, 0.02],
+  [4, 1, 0.005],
+  [1, 4, 0.005],
 ]
 
 /**
@@ -211,7 +221,7 @@ export function estimateRatio(de: readonly { text: string }[], en: readonly { te
 
 /**
  * Align the paragraphs of one chapter pair by dynamic programming over character lengths
- * (Gale & Church 1993) with 1-1, 1-2, 2-1, 1-0 and 0-1 moves. Every paragraph of both sides
+ * (Gale & Church 1993) with 1-1, 1-2, 2-1, 1-3, 3-1, 1-4, 4-1, 1-0 and 0-1 moves. Every paragraph of both sides
  * lands in exactly one bead, beads are in reading order on both sides, and the beads' costs
  * sum to the minimum over all such alignments.
  */

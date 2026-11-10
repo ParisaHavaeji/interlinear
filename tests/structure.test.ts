@@ -129,14 +129,14 @@ describe('length model', () => {
   })
 })
 
-/** Every index on each side appears exactly once, in order, and each bead is one of the five moves. */
+/** Every index on each side appears exactly once, in order, and each bead is one of the nine moves. */
 function checkInvariants(beads: ParagraphBead[], n: number, m: number): void {
   const de = beads.flatMap((b) => b.de)
   const en = beads.flatMap((b) => b.en)
   expect(de).toEqual(Array.from({ length: n }, (_, i) => i))
   expect(en).toEqual(Array.from({ length: m }, (_, i) => i))
   for (const b of beads) {
-    expect(`${b.de.length}-${b.en.length}`).toMatch(/^(1-1|1-0|0-1|2-1|1-2)$/)
+    expect(`${b.de.length}-${b.en.length}`).toMatch(/^(1-1|1-0|0-1|2-1|1-2|3-1|1-3|4-1|1-4)$/)
     expect(b.cost).toBeGreaterThanOrEqual(0)
   }
 }

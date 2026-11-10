@@ -128,7 +128,7 @@ describe('scoreGold', () => {
 const FLOORS: Record<string, number> = {
   'kafka-verwandlung': 0.99,
   'hesse-demian': 0.97,
-  'goethe-werther': 0.86,
+  'goethe-werther': 0.92,
 }
 
 describe.each(PAIRS)('gold alignment of $id', (spec) => {
