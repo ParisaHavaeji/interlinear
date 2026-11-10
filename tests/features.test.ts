@@ -279,7 +279,14 @@ describe('beadFeatures and combinedCost', () => {
     const f = beadFeatures([otherDe], [], { ratio })
     expect(f).toEqual({ length: otherDe.chars / 100, lexical: 0, cognate: 0, punctuation: 0 })
     expect(beadFeatures([otherDe], [], { ratio, deletionScale: 50 }).length).toBe(otherDe.chars / 50)
-    expect(combinedCost(f)).toBe(f.length + DEFAULT_WEIGHTS.lexical + DEFAULT_WEIGHTS.cognate + DEFAULT_WEIGHTS.punctuation)
+    expect(combinedCost(f)).toBeCloseTo(f.length + DEFAULT_WEIGHTS.lexical + DEFAULT_WEIGHTS.cognate + DEFAULT_WEIGHTS.punctuation)
+  })
+
+  it('scales the missing-evidence penalties by bead size but not the length cost', () => {
+    const f = { length: 1.5, lexical: 0.5, cognate: 0, punctuation: 1 }
+    const missing = DEFAULT_WEIGHTS.lexical * 0.5 + DEFAULT_WEIGHTS.cognate
+    expect(combinedCost(f, DEFAULT_WEIGHTS, 2)).toBeCloseTo(1.5 + 2 * missing)
+    expect(combinedCost(f, DEFAULT_WEIGHTS, 0.5)).toBeCloseTo(1.5 + 0.5 * missing)
   })
 
   it('applies custom weights', () => {

@@ -489,9 +489,14 @@ export const DEFAULT_WEIGHTS: FeatureWeights = { lexical: 3, cognate: 1.5, punct
 
 /**
  * One cost in nats for a bead: the length cost plus, for each overlap signal, its weight times
- * how far the signal falls short of 1. A one-sided bead pays all three in full, so dropping a
- * sentence costs more than matching it to anything that shares a word.
+ * how far the signal falls short of 1, scaled by `size`, the bead's text measured in sentence
+ * pairs ((|de| + |en|) / 2, so 1 for a 1-1 bead, 2 for a 2-2, ½ for a one-sided one). Without
+ * the scaling a 2-2 bead would pay for missing evidence once where two 1-1 beads pay twice,
+ * and the sentence DP would merge everything. A one-sided bead pays all three in full for its
+ * half pair, so dropping a sentence still costs more than matching it to anything that shares
+ * a word.
  */
-export function combinedCost(f: BeadFeatures, w: FeatureWeights = DEFAULT_WEIGHTS): number {
-  return f.length + w.lexical * (1 - f.lexical) + w.cognate * (1 - f.cognate) + w.punctuation * (1 - f.punctuation)
+export function combinedCost(f: BeadFeatures, w: FeatureWeights = DEFAULT_WEIGHTS, size = 1): number {
+  const missing = w.lexical * (1 - f.lexical) + w.cognate * (1 - f.cognate) + w.punctuation * (1 - f.punctuation)
+  return f.length + size * missing
 }
