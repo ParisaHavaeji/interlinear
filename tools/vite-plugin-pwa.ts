@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Plugin, ResolvedConfig } from 'vite'
 import { buildManifest } from './pwa-manifest.ts'
+import { renderServiceWorker, shellPrecacheList } from './pwa-sw.ts'
 
 /**
  * Hand-rolled PWA plugin:
@@ -33,24 +34,13 @@ export function pwa(): Plugin {
 
     generateBundle(_opts, bundle) {
       const base = config.base
-      const files = Object.keys(bundle)
-        .filter((f) => !f.endsWith('.map'))
-        .map((f) => base + f)
-      const publicFiles = [
-        'icons/apple-touch-icon-180.png',
-        'icons/icon-192.png',
-        'icons/icon-512.png',
-        'icons/favicon.svg',
-        'manifest.webmanifest',
-      ].map((f) => base + f)
-      const precache = [base, ...files, ...publicFiles]
-
+      const precache = shellPrecacheList(base, Object.keys(bundle))
       const template = readFileSync(resolve(config.root, 'src/pwa/sw.js'), 'utf8')
-      const version = `${Date.now().toString(36)}`
-      const sw = template
-        .replace('__PRECACHE_MANIFEST__', JSON.stringify(precache))
-        .replace('__CACHE_VERSION__', JSON.stringify(version))
-        .replace('__BASE__', JSON.stringify(base))
+      const sw = renderServiceWorker(template, {
+        base,
+        precache,
+        version: Date.now().toString(36),
+      })
 
       this.emitFile({ type: 'asset', fileName: 'sw.js', source: sw })
       this.emitFile({
