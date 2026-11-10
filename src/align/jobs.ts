@@ -22,13 +22,30 @@
  *   stay in place until the new ones are saved in one transaction. If the run fails (offline
  *   before the model was ever downloaded, say) the old alignment survives and the error is
  *   recorded on the book for the shelf to show until {@link clearAlignmentError} is called.
+ * - A **chapter edit** from the chapter sheet (step 17, {@link applyChapterEdits}) stores the
+ *   edits on the book and runs a job over the changed chapters only: the queue plans the new
+ *   chapter map on the main thread, tells the runner which pairs it may `reuse` (those with
+ *   the same {@link pairKey} as before), and {@link mergeAlignment} splices the new beads in
+ *   among the kept ones. A book aligned with the language model is repaired with it too, so
+ *   its beads stay of a kind. The edits also travel with every later full run.
  */
 
 import type { Lang, Paragraph } from '../import/types.ts'
 import { getParagraphs } from '../store/books.ts'
 import { db as sharedDb, type AlignmentState, type BeadRow, type Book, type InterlinearDB, type SentenceRow } from '../store/db.ts'
-import { alignBook, type AlignProgress, type AlignRequest, type AlignResult, type AlignStage } from './pipeline.ts'
+import {
+  alignBook,
+  pairKey,
+  planChapters,
+  statsFor,
+  type AlignProgress,
+  type AlignRequest,
+  type AlignResult,
+  type AlignStage,
+  type ChapterMap,
+} from './pipeline.ts'
 import { isPrealignedBook, prealignedResult } from './prealigned.ts'
+import type { ChapterEdits } from './structure.ts'
 
 // ---------------------------------------------------------------------------------------------
 // Runners
@@ -73,6 +90,8 @@ export interface AlignmentJob {
   fraction: number
   /** True for a re-alignment with the language model (step 15). */
   neural: boolean
+  /** True for a run over the chapters a chapter edit changed (step 17). */
+  partial: boolean
 }
 
 type Listener = (jobs: ReadonlyMap<string, AlignmentJob>) => void
@@ -111,6 +130,12 @@ export interface AlignmentDeps {
   runner?: Runner
   /** Re-align with the language model (step 15). Needs a runner that can, i.e. the worker. */
   neural?: boolean
+  /**
+   * `changed` (step 17): on a ready book, align only the chapter pairs its edits changed and
+   * keep the rest; with the model if the book was aligned with it. `book` (the default)
+   * aligns everything. A book that is not ready is aligned in full either way.
+   */
+  scope?: 'book' | 'changed'
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -120,13 +145,25 @@ function toParagraph(row: { idx: number; text: string; cls?: string }): Paragrap
   return row.cls === undefined ? { idx: row.idx, text: row.text } : { idx: row.idx, text: row.text, cls: row.cls }
 }
 
-/** Build the worker's request from what the store holds for a book. */
+/** Build the worker's request from what the store holds for a book, its chapter edits included. */
 export async function requestFor(book: Book, db: InterlinearDB): Promise<AlignRequest> {
   const side = async (lang: Lang) => ({
     paragraphs: (await getParagraphs(book.id, lang, db)).map(toParagraph),
     sections: book.sources[lang].sections,
   })
-  return { de: await side('de'), en: await side('en') }
+  const request: AlignRequest = { de: await side('de'), en: await side('en') }
+  if (book.chapterEdits !== undefined) request.edits = book.chapterEdits
+  return request
+}
+
+/**
+ * The chapter pairs of `next` whose beads an alignment of `previous` can stand in for: those
+ * with the same {@link pairKey}, i.e. the same paragraphs on both sides. One-sided pairs have
+ * no beads and are never listed.
+ */
+export function reusablePairs(previous: ChapterMap, next: ChapterMap): string[] {
+  const before = new Set(previous.pairs.map((p) => pairKey(p, previous)))
+  return next.pairs.filter((p) => p.de.length > 0 && p.en.length > 0).map((p) => pairKey(p, next)).filter((k) => before.has(k))
 }
 
 function sentenceRows(bookId: string, lang: Lang, sentences: AlignResult['sentences'][Lang]): SentenceRow[] {
@@ -176,6 +213,109 @@ export async function saveAlignment(bookId: string, result: AlignResult, db: Int
   })
 }
 
+/** Group beads by the chapter pair they sit in, through their sentences' paragraphs. */
+function beadsByPair<B extends { deSentenceIdx: number[]; enSentenceIdx: number[] }>(
+  beads: readonly B[],
+  chapters: ChapterMap,
+  sentences: { de: ReadonlyMap<number, number>; en: ReadonlyMap<number, number> },
+): Map<string, B[]> {
+  const paraToKey = { de: new Map<number, string>(), en: new Map<number, string>() }
+  for (const pair of chapters.pairs) {
+    const key = pairKey(pair, chapters)
+    for (const i of pair.de) {
+      const c = chapters.de[i]
+      for (let p = c.paraStart; p < c.paraStart + c.paraCount; p++) paraToKey.de.set(p, key)
+    }
+    for (const j of pair.en) {
+      const c = chapters.en[j]
+      for (let p = c.paraStart; p < c.paraStart + c.paraCount; p++) paraToKey.en.set(p, key)
+    }
+  }
+  const groups = new Map<string, B[]>()
+  for (const b of beads) {
+    const key =
+      b.deSentenceIdx.length > 0
+        ? paraToKey.de.get(sentences.de.get(b.deSentenceIdx[0]) ?? -1)
+        : paraToKey.en.get(sentences.en.get(b.enSentenceIdx[0]) ?? -1)
+    if (key === undefined) continue
+    const list = groups.get(key)
+    if (list === undefined) groups.set(key, [b])
+    else list.push(b)
+  }
+  return groups
+}
+
+/**
+ * Save a partial run (step 17): the result's beads cover the chapter pairs that changed, the
+ * stored beads of the pairs in `reuse` are kept (`manual` flags included), and the merged list
+ * is written in reading order with the new chapter map and fresh stats. The book's lexicon
+ * stays what the last full run taught. The sentences are rewritten too; they are the same
+ * rows, since the splitter is a pure function of the paragraphs, and when they are not (the
+ * splitter changed between app versions) the kept beads would point at the wrong sentences,
+ * so the merge refuses and leaves the book as it was. Returns false when the book is gone.
+ */
+export async function mergeAlignment(bookId: string, result: AlignResult, reuse: readonly string[], db: InterlinearDB = sharedDb()): Promise<boolean> {
+  return db.transaction('rw', [db.books, db.sentences, db.beads], async () => {
+    const book = await db.books.get(bookId)
+    if (book === undefined) return false
+    const previous = book.alignment?.chapters
+    if (book.alignment?.status !== 'ready' || previous === undefined) throw new Error('The book must be aligned before its chapters can be edited')
+    const [oldDe, oldEn, oldBeads] = await Promise.all([
+      db.sentences.where('[bookId+lang]').equals([bookId, 'de']).toArray(),
+      db.sentences.where('[bookId+lang]').equals([bookId, 'en']).toArray(),
+      db.beads.where('bookId').equals(bookId).sortBy('beadIdx'),
+    ])
+    const same = (rows: SentenceRow[], fresh: readonly { idx: number; paraIdx: number; charStart: number; charEnd: number }[]) =>
+      rows.length === fresh.length &&
+      rows.every((r) => {
+        const s = fresh[r.idx]
+        return s !== undefined && s.paraIdx === r.paraIdx && s.charStart === r.charStart && s.charEnd === r.charEnd
+      })
+    if (!same(oldDe, result.sentences.de) || !same(oldEn, result.sentences.en)) {
+      throw new Error('The sentences of this book changed; re-align the whole book first')
+    }
+    const paraOf = (rows: readonly { idx: number; paraIdx: number }[]) => new Map(rows.map((s) => [s.idx, s.paraIdx]))
+    const sentencePara = { de: paraOf(result.sentences.de), en: paraOf(result.sentences.en) }
+    const kept = beadsByPair(oldBeads, previous, sentencePara)
+    const fresh = beadsByPair(result.beads, result.chapters, sentencePara)
+    const reusable = new Set(reuse)
+
+    const merged: BeadRow[] = []
+    for (const pair of result.chapters.pairs) {
+      const key = pairKey(pair, result.chapters)
+      if (reusable.has(key)) {
+        for (const b of kept.get(key) ?? []) merged.push({ ...b, beadIdx: merged.length })
+      } else {
+        for (const b of fresh.get(key) ?? []) {
+          merged.push({ bookId, beadIdx: merged.length, deSentenceIdx: b.deSentenceIdx, enSentenceIdx: b.enSentenceIdx, confidence: b.confidence, manual: false })
+        }
+      }
+    }
+
+    await db.sentences.where('bookId').equals(bookId).delete()
+    await db.beads.where('bookId').equals(bookId).delete()
+    await db.sentences.bulkAdd(sentenceRows(bookId, 'de', result.sentences.de))
+    await db.sentences.bulkAdd(sentenceRows(bookId, 'en', result.sentences.en))
+    await db.beads.bulkAdd(merged)
+    const old = book.alignment.stats
+    const alignment: AlignmentState = {
+      status: 'ready',
+      updated: Date.now(),
+      chapters: result.chapters,
+      lexicon: book.alignment.lexicon ?? [],
+      stats: statsFor(result.sentences, merged, {
+        learnedPairs: old?.learnedPairs ?? 0,
+        changedBeads: old?.changedBeads ?? 0,
+        pairedChapters: result.chapters.pairs.filter((p) => p.de.length > 0 && p.en.length > 0).length,
+        elapsedMs: result.stats.elapsedMs,
+        neural: old?.neural === true && result.stats.neural,
+      }),
+    }
+    await db.books.update(bookId, { alignment })
+    return true
+  })
+}
+
 async function setStatus(db: InterlinearDB, bookId: string, status: 'aligning' | 'failed', error?: string): Promise<void> {
   const book = await db.books.get(bookId)
   if (book === undefined) return
@@ -210,6 +350,16 @@ async function run(bookId: string, entry: Active, db: InterlinearDB, runner: Run
   if (!keepReady) await setStatus(db, bookId, 'aligning')
   try {
     const request = await requestFor(book, db)
+    // A partial run needs an alignment to keep most of; otherwise it is a full run.
+    const previous = book.alignment?.status === 'ready' ? book.alignment.chapters : undefined
+    const partial = entry.job.partial && previous !== undefined && !isPrealignedBook(book)
+    let reuse: string[] = []
+    if (partial) {
+      reuse = reusablePairs(previous, planChapters(request))
+      request.reuse = reuse
+      request.lexicon = book.alignment?.lexicon ?? []
+      if (book.alignment?.stats?.neural === true) entry.job.neural = true
+    } else entry.job.partial = false
     if (entry.job.neural) request.neural = true
     entry.job.stage = 'structure'
     publish()
@@ -228,7 +378,8 @@ async function run(bookId: string, entry: Active, db: InterlinearDB, runner: Run
     entry.job.stage = 'saving'
     entry.job.fraction = 0.95
     publish()
-    await saveAlignment(bookId, result, db)
+    if (partial) await mergeAlignment(bookId, result, reuse, db)
+    else await saveAlignment(bookId, result, db)
     entry.job.fraction = 1
     publish()
   } catch (err) {
@@ -255,7 +406,10 @@ export function startAlignment(bookId: string, deps: AlignmentDeps = {}): Promis
   const db = deps.db ?? sharedDb()
   const runner = deps.runner ?? defaultRunner
   const controller = new AbortController()
-  const entry = { job: { bookId, stage: 'queued', fraction: 0, neural: deps.neural === true }, controller } as Active
+  const entry = {
+    job: { bookId, stage: 'queued', fraction: 0, neural: deps.neural === true, partial: deps.scope === 'changed' },
+    controller,
+  } as Active
   entry.promise = queue
     .then(() => run(bookId, entry, db, runner))
     .finally(() => {
@@ -273,6 +427,25 @@ export function startAlignment(bookId: string, deps: AlignmentDeps = {}): Promis
 /** Stop a queued or running job. The book's status is left as it was; nothing is saved. */
 export function cancelAlignment(bookId: string): void {
   active.get(bookId)?.controller.abort()
+}
+
+/**
+ * Store the reader's chapter edits on a book and re-align what they changed (step 17). A job
+ * already running for the book is stopped first, so the newest edits are the ones applied;
+ * the stored alignment is untouched until the new beads are saved. Resolves as
+ * {@link startAlignment} does. A pre-aligned book has no chapter edits to apply.
+ */
+export async function applyChapterEdits(bookId: string, edits: ChapterEdits, deps: AlignmentDeps = {}): Promise<void> {
+  const db = deps.db ?? sharedDb()
+  const book = await db.books.get(bookId)
+  if (book === undefined || isPrealignedBook(book)) return
+  await db.books.update(bookId, { chapterEdits: edits })
+  const running = active.get(bookId)
+  if (running !== undefined) {
+    running.controller.abort()
+    await running.promise
+  }
+  return startAlignment(bookId, { ...deps, scope: 'changed' })
 }
 
 /** True for a book whose alignment has not finished: never started, interrupted, or failed. */

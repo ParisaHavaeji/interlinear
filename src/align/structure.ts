@@ -43,6 +43,50 @@ export interface SectionRange {
   paraCount: number
 }
 
+/**
+ * The reader's corrections to one side's structure (plan §1.1b, step 17), by {@link chapterKey}:
+ * sections forced into the aligned text although they look like front or back matter, and
+ * sections (or plain-text chapters) forced out of it.
+ */
+export interface SideEdits {
+  include?: number[]
+  exclude?: number[]
+}
+
+/** A chapter pair the reader set by hand: chapter keys of each side (see {@link chapterKey}). */
+export interface PairEdit {
+  de: number[]
+  en: number[]
+}
+
+/** Every correction the reader made to a book's chapters; the aligner applies them on every run. */
+export interface ChapterEdits {
+  de?: SideEdits
+  en?: SideEdits
+  /** Pairs set by hand; the DP pairs whatever chapters they leave free. */
+  pairs?: PairEdit[]
+}
+
+/**
+ * The stable key of a chapter on one side, which the edits refer to: the spine index for an
+ * EPUB section, else the index of the chapter's first paragraph. Chapter positions (`idx`)
+ * shift when a section is included or excluded; keys do not.
+ */
+export function chapterKey(c: { sectionIdx: number | null; paraStart: number }): number {
+  return c.sectionIdx ?? c.paraStart
+}
+
+/** What one side's chapter detection found: the chapters to align, and what was left out. */
+export interface Structure {
+  chapters: Chapter[]
+  /**
+   * Sections (or chapters) that take no part in alignment, in reading order: front and back
+   * matter, non-linear spine items, and whatever the reader excluded. Their `idx` is their
+   * position in this list. Listed so the chapter sheet can show and reverse the decision.
+   */
+  excluded: Chapter[]
+}
+
 /** At most this many consecutive heading lines form one heading ("Erstes Buch" + "Am 4. Mai 1771"). */
 const MAX_HEADING_LINES = 3
 
@@ -52,9 +96,28 @@ const MAX_HEADING_LINES = 3
  * into one heading; a longer run of short lines (an epigraph, a poem) stays body text after the
  * third. Text before the first heading becomes a chapter without a heading. Heading lines at
  * the very end ("ENDE", "THE END") are kept as prose of the last chapter rather than opening an
- * empty one. A text with no headings at all is one chapter.
+ * empty one. A text with no headings at all is one chapter. Chapters whose key the reader
+ * excluded (`edits.exclude`) are left out and the rest renumbered; `structureFromParagraphs`
+ * also returns them.
  */
-export function chaptersFromParagraphs(paragraphs: readonly Paragraph[]): Chapter[] {
+export function chaptersFromParagraphs(paragraphs: readonly Paragraph[], edits?: SideEdits): Chapter[] {
+  return structureFromParagraphs(paragraphs, edits).chapters
+}
+
+/** {@link chaptersFromParagraphs} plus the chapters the reader excluded. */
+export function structureFromParagraphs(paragraphs: readonly Paragraph[], edits?: SideEdits): Structure {
+  const all = detectChapters(paragraphs)
+  const excluded = new Set(edits?.exclude ?? [])
+  if (excluded.size === 0) return { chapters: all, excluded: [] }
+  const out: Structure = { chapters: [], excluded: [] }
+  for (const c of all) {
+    const list = excluded.has(chapterKey(c)) ? out.excluded : out.chapters
+    list.push({ ...c, idx: list.length })
+  }
+  return out
+}
+
+function detectChapters(paragraphs: readonly Paragraph[]): Chapter[] {
   const chapters: Chapter[] = []
   let heading: string | null = null
   let paraStart = 0
@@ -92,14 +155,30 @@ export function chaptersFromParagraphs(paragraphs: readonly Paragraph[]): Chapte
  * One chapter per body section of an EPUB, in spine order. Front and back matter and
  * non-linear items are skipped: they take no part in alignment, though the chapter list sheet
  * still shows them (plan §1.1b). The heading is the detected one, else the navigation title.
+ * The reader's edits override the detected kind: an included section is a chapter whatever
+ * it looks like, an excluded one is not. Empty sections are neither.
  */
-export function chaptersFromSections(sections: readonly SectionRange[], paragraphs: readonly Paragraph[]): Chapter[] {
-  const chapters: Chapter[] = []
+export function chaptersFromSections(sections: readonly SectionRange[], paragraphs: readonly Paragraph[], edits?: SideEdits): Chapter[] {
+  return structureFromSections(sections, paragraphs, edits).chapters
+}
+
+/** True when a section takes part in alignment unless the reader says otherwise. */
+export function isBodyByDefault(s: Pick<SectionRange, 'kind' | 'linear'>): boolean {
+  return s.kind === 'body' && s.linear
+}
+
+/** {@link chaptersFromSections} plus the sections left out, as chapters of their own list. */
+export function structureFromSections(sections: readonly SectionRange[], paragraphs: readonly Paragraph[], edits?: SideEdits): Structure {
+  const include = new Set(edits?.include ?? [])
+  const exclude = new Set(edits?.exclude ?? [])
+  const out: Structure = { chapters: [], excluded: [] }
   for (const s of sections) {
-    if (s.kind !== 'body' || !s.linear || s.paraCount === 0) continue
+    if (s.paraCount === 0) continue
     const body = paragraphs.slice(s.paraStart, s.paraStart + s.paraCount)
-    chapters.push({
-      idx: chapters.length,
+    const included = exclude.has(s.idx) ? false : include.has(s.idx) || isBodyByDefault(s)
+    const list = included ? out.chapters : out.excluded
+    list.push({
+      idx: list.length,
       heading: s.heading ?? s.title,
       sectionIdx: s.idx,
       paraStart: s.paraStart,
@@ -107,12 +186,17 @@ export function chaptersFromSections(sections: readonly SectionRange[], paragrap
       words: countWords(body),
     })
   }
-  return chapters
+  return out
 }
 
 /** Chapters of an imported text: by section for EPUBs, by heading line for plain text. */
-export function chaptersOf(text: { paragraphs: readonly Paragraph[]; sections: readonly SectionRange[] }): Chapter[] {
-  return text.sections.length > 0 ? chaptersFromSections(text.sections, text.paragraphs) : chaptersFromParagraphs(text.paragraphs)
+export function chaptersOf(text: { paragraphs: readonly Paragraph[]; sections: readonly SectionRange[] }, edits?: SideEdits): Chapter[] {
+  return structureOf(text, edits).chapters
+}
+
+/** {@link chaptersOf} with the excluded sections alongside. */
+export function structureOf(text: { paragraphs: readonly Paragraph[]; sections: readonly SectionRange[] }, edits?: SideEdits): Structure {
+  return text.sections.length > 0 ? structureFromSections(text.sections, text.paragraphs, edits) : structureFromParagraphs(text.paragraphs, edits)
 }
 
 // ---------------------------------------------------------------------------------------------

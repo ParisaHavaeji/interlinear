@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto'
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { inlineRunner, needsAlignment, startAlignment } from '../src/align/jobs.ts'
+import { applyChapterEdits, inlineRunner, needsAlignment, startAlignment } from '../src/align/jobs.ts'
 import type { ImportedText } from '../src/import/file.ts'
 import { parseTxt } from '../src/import/txt.ts'
 import { addBook, getParagraphs, listBooks } from '../src/store/books.ts'
@@ -193,6 +193,19 @@ describe('importBundle', () => {
     } finally {
       await other.delete()
     }
+  })
+
+  it('carries the chapter edits and the chapter map’s confidences, flags and excluded sections (step 17)', async () => {
+    const original = await alignedBook()
+    await applyChapterEdits(original.id, { de: { exclude: [5] }, pairs: [] }, { db, runner: inlineRunner })
+    const edited = (await db.books.get(original.id))!
+    expect(edited.chapterEdits).toEqual({ de: { exclude: [5] }, pairs: [] })
+    const json = JSON.stringify(await exportBundle(original.id, db))
+    const bundle = parseBundle(json)
+    expect(bundle.book.chapterEdits).toEqual({ de: { exclude: [5] }, pairs: [] })
+    expect(bundle.book.alignment?.chapters).toEqual(edited.alignment?.chapters)
+    expect(bundle.book.alignment?.chapters?.pairs[0].confidence).toBeGreaterThan(0)
+    expect(() => parseBundle(JSON.parse(json.replace('"exclude":[5]', '"exclude":["x"]')))).toThrow('chapterEdits.de.exclude')
   })
 
   it('takes a fresh id when the library already has the bundle’s book, and the sheet’s title and author', async () => {

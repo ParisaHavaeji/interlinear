@@ -2,7 +2,17 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { ParagraphBlock } from '../src/align/beads.ts'
 import { alignTwoPass } from '../src/align/lexicon.ts'
-import { alignBook, LOW_CONFIDENCE, pairChapters, type AlignProgress, type AlignStage } from '../src/align/pipeline.ts'
+import {
+  alignBook,
+  LOW_CHAPTER_CONFIDENCE,
+  LOW_CONFIDENCE,
+  pairChapters,
+  pairChaptersEdited,
+  pairKey,
+  planChapters,
+  type AlignProgress,
+  type AlignStage,
+} from '../src/align/pipeline.ts'
 import { splitParagraphs } from '../src/align/sentences.ts'
 import { alignParagraphs, chaptersFromParagraphs, type Chapter } from '../src/align/structure.ts'
 import { parseTxt } from '../src/import/txt.ts'
@@ -66,6 +76,69 @@ describe('pairChapters', () => {
   })
 })
 
+describe('pairChaptersEdited', () => {
+  const de = [chapter(0, 500), chapter(1, 300), chapter(2, 450), chapter(3, 350)]
+  const en = [chapter(0, 550), chapter(1, 330), chapter(2, 500), chapter(3, 385)]
+
+  it('without edits is pairChapters with a confidence on every two-sided pair', () => {
+    const pairs = pairChaptersEdited(de, en)
+    expect(pairs).toMatchObject([0, 1, 2, 3].map((i) => ({ de: [i], en: [i] })))
+    for (const p of pairs) {
+      expect(p.confidence).toBeGreaterThan(LOW_CHAPTER_CONFIDENCE)
+      expect(p.confidence).toBeLessThanOrEqual(1)
+      expect(p.manual).toBeUndefined()
+    }
+    const [lone] = pairChaptersEdited([chapter(0, 100)], [])
+    expect(lone.confidence).toBeUndefined()
+  })
+
+  it('rates a pair whose sides disagree in length as uncertain', () => {
+    const pairs = pairChaptersEdited([chapter(0, 500), chapter(1, 200)], [chapter(0, 500), chapter(1, 400)])
+    expect(pairs[1].confidence).toBeLessThanOrEqual(LOW_CHAPTER_CONFIDENCE)
+  })
+
+  it('pins the hand-set pairs, pairs the free chapters among themselves and keeps reading order', () => {
+    // Chapter keys are paraStart here: 0, 10, 20, 30.
+    const pairs = pairChaptersEdited(de, en, [{ de: [20], en: [30] }])
+    expect(pairs.map((p) => `${p.de}|${p.en}${p.manual ? '*' : ''}`)).toEqual(['0|0', '1|1', '2|3*', '3|2'])
+    expect(pairs[2].confidence).toBeDefined()
+  })
+
+  it('ignores a hand-set pair that names an unknown chapter or one already pinned', () => {
+    const pairs = pairChaptersEdited(de, en, [
+      { de: [20], en: [99] },
+      { de: [10], en: [10] },
+      { de: [10], en: [20] },
+    ])
+    expect(pairs.map((p) => `${p.de}|${p.en}${p.manual ? '*' : ''}`)).toEqual(['0|0', '1|1*', '2|2', '3|3'])
+  })
+})
+
+describe('planChapters / pairKey', () => {
+  const text = (...chapters: string[][]) => ({
+    paragraphs: paras(...chapters.flat()),
+    sections: [],
+  })
+
+  it('applies the edits, lists what was excluded and keys pairs by paragraph ranges', () => {
+    // A preface longer than any chapter, which only the German has: dropped, not folded in.
+    const de = text(['Vorwort', prose(60)], ['I.', prose(40)], ['II.', prose(30)], ['III.', prose(35)])
+    const en = text(['I.', prose(40)], ['II.', prose(30)], ['III.', prose(35)])
+    const plain = planChapters({ de, en })
+    expect(plain.de.map((c) => c.heading)).toEqual(['Vorwort', 'I.', 'II.', 'III.'])
+    expect(plain.excluded).toEqual({ de: [], en: [] })
+    expect(plain.pairs.map((p) => `${p.de}|${p.en}`)).toEqual(['0|', '1|0', '2|1', '3|2'])
+
+    const edited = planChapters({ de, en, edits: { de: { exclude: [1] } } })
+    expect(edited.de.map((c) => c.heading)).toEqual(['I.', 'II.', 'III.'])
+    expect(edited.excluded?.de.map((c) => c.heading)).toEqual(['Vorwort'])
+    expect(edited.pairs.map((p) => `${p.de}|${p.en}`)).toEqual(['0|0', '1|1', '2|2'])
+    // The same chapters make the same key whatever their positions.
+    expect(pairKey(plain.pairs[1], plain)).toBe(pairKey(edited.pairs[0], edited))
+    expect(pairKey(plain.pairs[0], plain)).toBe('1+1|')
+  })
+})
+
 describe('alignBook', () => {
   const de = {
     paragraphs: paras('I.', 'Gregor lachte im Haus. Samsa schlief im Zimmer.', 'Die Mutter fand vier Wände.', 'II.', 'Gregor lachte wieder.'),
@@ -92,7 +165,7 @@ describe('alignBook', () => {
     expect(result.beads.map((b) => `${b.deSentenceIdx.join('+')}:${b.enSentenceIdx.join('+')}`)).toEqual(['1:1', '2:2', '3:3', '5:5'])
     expect(result.chapters.de.map((c) => c.heading)).toEqual(['I.', 'II.'])
     expect(result.chapters.en.map((c) => c.heading)).toEqual(['I.', 'II.'])
-    expect(result.chapters.pairs).toEqual([
+    expect(result.chapters.pairs).toMatchObject([
       { de: [0], en: [0] },
       { de: [1], en: [1] },
     ])
@@ -109,12 +182,29 @@ describe('alignBook', () => {
     expect(result.lexicon).toEqual([])
   })
 
+  it('skips the pairs it may reuse and takes the lexicon it is given (partial runs, step 17)', () => {
+    const full = alignBook({ de, en })
+    const first = pairKey(full.chapters.pairs[0], full.chapters)
+    const seen: AlignStage[] = []
+    const partial = alignBook({ de, en, reuse: [first], lexicon: [{ de: 'mutter', en: 'mother', count: 3, dice: 1 }] }, null, (p) => seen.push(p.stage))
+    expect(partial.chapters).toEqual(full.chapters)
+    expect(partial.sentences).toEqual(full.sentences)
+    expect(partial.beads.map((b) => `${b.deSentenceIdx}:${b.enSentenceIdx}`)).toEqual(['5:5'])
+    expect(partial.lexicon).toEqual([{ de: 'mutter', en: 'mother', count: 3, dice: 1 }])
+    expect(partial.stats).toMatchObject({ beads: 1, pairedChapters: 1, learnedPairs: 1 })
+    expect(seen).toContain('pass2')
+    // Reusing everything plans the book but aligns nothing.
+    const nothing = alignBook({ de, en, reuse: full.chapters.pairs.map((p) => pairKey(p, full.chapters)) })
+    expect(nothing.beads).toEqual([])
+    expect(nothing.chapters).toEqual(full.chapters)
+  })
+
   it('copes with an empty side: sentences on the other side, no beads', () => {
     const result = alignBook({ de, en: { paragraphs: [], sections: [] } })
     expect(result.sentences.de).toHaveLength(6)
     expect(result.sentences.en).toHaveLength(0)
     expect(result.beads).toEqual([])
-    expect(result.chapters.pairs).toEqual([
+    expect(result.chapters.pairs).toMatchObject([
       { de: [0], en: [] },
       { de: [1], en: [] },
     ])
@@ -142,7 +232,7 @@ describe('alignBook on the Kafka fixture', () => {
 
   it('pairs the three chapters and covers every prose sentence exactly once', () => {
     expect(result.chapters.de.map((c) => c.heading)).toEqual(['I.', 'II.', 'III.'])
-    expect(result.chapters.pairs).toEqual([
+    expect(result.chapters.pairs).toMatchObject([
       { de: [0], en: [0] },
       { de: [1], en: [1] },
       { de: [2], en: [2] },

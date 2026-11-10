@@ -6,6 +6,7 @@
 import { Dexie, type EntityTable, type Table } from 'dexie'
 import type { AlignStats, ChapterMap } from '../align/pipeline.ts'
 import type { InducedPair } from '../align/lexicon.ts'
+import type { ChapterEdits } from '../align/structure.ts'
 import type { TxtLayout } from '../import/txt.ts'
 import type { Lang, SectionKind } from '../import/types.ts'
 
@@ -77,6 +78,11 @@ export interface Book {
   sources: Record<Lang, SourceInfo>
   /** Missing on books imported before step 12; treated as `pending`. */
   alignment?: AlignmentState
+  /**
+   * The reader's corrections to the chapter structure from the chapter sheet (step 17):
+   * sections included or excluded, chapters paired by hand. Applied on every alignment run.
+   */
+  chapterEdits?: ChapterEdits
 }
 
 export interface ParagraphRow {

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AlignmentCancelled,
+  applyChapterEdits,
   cancelAlignment,
   getAlignmentJobs,
   inlineRunner,
@@ -15,7 +16,7 @@ import {
   type AlignmentJob,
   type Runner,
 } from '../src/align/jobs.ts'
-import { alignBook, type AlignResult } from '../src/align/pipeline.ts'
+import { alignBook, pairKey, type AlignRequest, type AlignResult } from '../src/align/pipeline.ts'
 import type { ImportedText } from '../src/import/file.ts'
 import { parseTxt } from '../src/import/txt.ts'
 import { addBook, deleteBook } from '../src/store/books.ts'
@@ -78,7 +79,7 @@ describe('startAlignment', () => {
 
     const stored = (await db.books.get(book.id))!
     expect(stored.alignment).toMatchObject({ status: 'ready', stats: { beads: 4, oneToOne: 4, pairedChapters: 2 } })
-    expect(stored.alignment?.chapters?.pairs).toEqual([
+    expect(stored.alignment?.chapters?.pairs).toMatchObject([
       { de: [0], en: [0] },
       { de: [1], en: [1] },
     ])
@@ -230,6 +231,108 @@ describe('resumeAlignments', () => {
     expect(ran).toHaveLength(3)
     for (const b of [pending, interrupted, legacy]) expect((await db.books.get(b.id))?.alignment?.status).toBe('ready')
     expect((await db.books.get(failed.id))?.alignment?.status).toBe('failed')
+  })
+})
+
+describe('applyChapterEdits (step 17)', () => {
+  // Three chapters on both sides, the third twice as long as the others, so the length DP
+  // pairs them one to one and, with one side's third chapter gone, drops the other's.
+  const DE3 = txt(
+    'k.de.txt',
+    'I.\n\nGregor lachte im Haus. Samsa schlief im Zimmer.\n\nII.\n\nDie Mutter fand vier Wände. Der Vater las die Zeitung.\n\nIII.\n\nGregor lachte wieder laut und lange. Grete spielte Geige im Zimmer. Alle hörten ihr gerne zu.',
+  )
+  const EN3 = txt(
+    'k.en.txt',
+    'I.\n\nGregor laughed in the house. Samsa slept in the room.\n\nII.\n\nMother found four walls. Father read the newspaper.\n\nIII.\n\nGregor laughed again loudly and long. Grete played violin in the room. Everyone liked listening to her.',
+  )
+  const shape = (beads: { deSentenceIdx: number[]; enSentenceIdx: number[] }[]) => beads.map((b) => `${b.deSentenceIdx}:${b.enSentenceIdx}`)
+
+  /** The inline runner, remembering what it was asked and what it produced. */
+  function recording() {
+    const calls: { request: AlignRequest; result: AlignResult }[] = []
+    const runner: Runner = async (request, onProgress, signal) => {
+      const result = await inlineRunner(request, onProgress, signal)
+      calls.push({ request, result })
+      return result
+    }
+    return { calls, runner }
+  }
+
+  it('excludes a chapter, keeping the other chapters’ beads untouched, and brings it back', async () => {
+    const book = await addBook({ title: 'K', author: '', de: DE3, en: EN3 }, db)
+    await startAlignment(book.id, { db, runner: inlineRunner })
+    const before = await db.beads.where('bookId').equals(book.id).sortBy('beadIdx')
+    expect(shape(before)).toEqual(['1:1', '2:2', '4:4', '5:5', '7:7', '8:8', '9:9'])
+    await db.beads.update([book.id, 0], { manual: true })
+    const { calls, runner } = recording()
+
+    // Chapter III of the German side is keyed by its first paragraph, 5.
+    await applyChapterEdits(book.id, { de: { exclude: [5] } }, { db, runner })
+    const edited = (await db.books.get(book.id))!
+    expect(edited.chapterEdits).toEqual({ de: { exclude: [5] } })
+    expect(edited.alignment?.status).toBe('ready')
+    expect(edited.alignment?.chapters?.de.map((c) => c.heading)).toEqual(['I.', 'II.'])
+    expect(edited.alignment?.chapters?.excluded?.de.map((c) => c.heading)).toEqual(['III.'])
+    expect(edited.alignment?.chapters?.pairs.map((p) => `${p.de}|${p.en}`)).toEqual(['0|0', '1|1', '|2'])
+    const after = await db.beads.where('bookId').equals(book.id).sortBy('beadIdx')
+    expect(shape(after)).toEqual(['1:1', '2:2', '4:4', '5:5'])
+    expect(after.map((b) => b.manual)).toEqual([true, false, false, false])
+    expect(after.map((b) => b.confidence)).toEqual(before.slice(0, 4).map((b) => b.confidence))
+    expect(edited.alignment?.stats).toMatchObject({ beads: 4, pairedChapters: 2, sentences: { de: 10, en: 10 } })
+    // Both remaining pairs were reused; the runner had nothing to align.
+    expect(calls).toHaveLength(1)
+    expect(calls[0].request.reuse).toHaveLength(2)
+    expect(calls[0].request.lexicon).toEqual([])
+    expect(calls[0].result.beads).toEqual([])
+    expect(await db.sentences.where('bookId').equals(book.id).count()).toBe(20)
+
+    // Undoing the edit aligns chapter III afresh and keeps the rest once more.
+    await applyChapterEdits(book.id, {}, { db, runner })
+    const restored = (await db.books.get(book.id))!
+    expect(restored.alignment?.chapters?.pairs.map((p) => `${p.de}|${p.en}`)).toEqual(['0|0', '1|1', '2|2'])
+    const again = await db.beads.where('bookId').equals(book.id).sortBy('beadIdx')
+    expect(shape(again)).toEqual(['1:1', '2:2', '4:4', '5:5', '7:7', '8:8', '9:9'])
+    expect(again.map((b) => b.manual)).toEqual([true, false, false, false, false, false, false])
+    expect(calls[1].request.reuse).toHaveLength(2)
+    expect(shape(calls[1].result.beads)).toEqual(['7:7', '8:8', '9:9'])
+    expect(restored.alignment?.stats?.beads).toBe(7)
+  })
+
+  it('pairs two chapters by hand and re-aligns only the pairs that changed', async () => {
+    const book = await addBook({ title: 'K', author: '', de: DE3, en: EN3 }, db)
+    await startAlignment(book.id, { db, runner: inlineRunner })
+    const { calls, runner } = recording()
+    await applyChapterEdits(book.id, { pairs: [{ de: [5], en: [3] }] }, { db, runner })
+    const edited = (await db.books.get(book.id))!
+    const pairs = edited.alignment!.chapters!.pairs
+    expect(pairs.map((p) => `${p.de}|${p.en}${p.manual ? '*' : ''}`)).toEqual(['0|0', '1|2', '2|1*'])
+    const beads = await db.beads.where('bookId').equals(book.id).sortBy('beadIdx')
+    // Pair one is kept as it was; the two re-paired chapters are aligned afresh, in pair order.
+    expect(shape(beads.slice(0, 2))).toEqual(['1:1', '2:2'])
+    const rest = beads.slice(2)
+    expect(rest.flatMap((b) => b.deSentenceIdx)).toEqual([4, 5, 7, 8, 9])
+    expect(rest.flatMap((b) => b.enSentenceIdx)).toEqual([7, 8, 9, 4, 5])
+    expect(calls[0].request.reuse).toEqual([pairKey(pairs[0], edited.alignment!.chapters!)])
+    expect(calls[0].result.beads).toHaveLength(rest.length)
+    expect(edited.alignment?.stats).toMatchObject({ beads: beads.length, pairedChapters: 3 })
+  })
+
+  it('does nothing for a pre-aligned book, and aligns in full when the book is not ready', async () => {
+    const lines = (file: string, text: string): ImportedText => ({ ...txt(file, text.replace(/\n/g, '\n\n')), layout: 'lines' })
+    const pre = await addBook({ title: 'P', author: '', de: lines('p.de.txt', 'Eins.\nZwei.'), en: lines('p.en.txt', 'One.\nTwo.') }, db)
+    await startAlignment(pre.id, { db, runner: inlineRunner })
+    await applyChapterEdits(pre.id, { de: { exclude: [0] } }, { db, runner: inlineRunner })
+    expect((await db.books.get(pre.id))?.chapterEdits).toBeUndefined()
+
+    const fresh = await addBook({ title: 'F', author: '', de: DE3, en: EN3 }, db)
+    const { calls, runner } = recording()
+    await applyChapterEdits(fresh.id, { de: { exclude: [5] } }, { db, runner })
+    expect(calls[0].request.reuse).toBeUndefined()
+    expect(calls[0].request.edits).toEqual({ de: { exclude: [5] } })
+    const stored = (await db.books.get(fresh.id))!
+    expect(stored.alignment?.status).toBe('ready')
+    expect(stored.alignment?.chapters?.de.map((c) => c.heading)).toEqual(['I.', 'II.'])
+    expect(shape(await db.beads.where('bookId').equals(fresh.id).sortBy('beadIdx'))).toEqual(['1:1', '2:2', '4:4', '5:5'])
   })
 })
 

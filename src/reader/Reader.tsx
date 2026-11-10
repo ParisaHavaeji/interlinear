@@ -10,11 +10,12 @@
  * paragraph length until a paragraph has been rendered once and measured; a measurement above
  * the viewport scrolls the window by the difference so the visible text does not move.
  *
- * Reached at `#/read/<bookId>[/<chapter>]`. The chrome is the minimum to get in and out (a
- * back button, the title, the chapter position, previous / next at the end of the chapter);
- * step 17 replaces it with the Books top bar, progress line and chapter list. A book that is not
- * aligned yet still opens: its paragraphs render without sentence spans, as one chapter, and the
- * live query swaps the real chapters and sentences in when the alignment lands.
+ * Reached at `#/read/<bookId>[/<chapter>]`. The Books chrome of step 17 (`ReaderChrome.tsx`)
+ * frames the page: a top bar that slides away as the reader scrolls down, a footer with the
+ * chapter's progress line, and the chapter list sheet (`ChaptersSheet.tsx`), which also holds
+ * the chapter-mapping corrections of plan §1.1b. A book that is not aligned yet still opens:
+ * its paragraphs render without sentence spans, as one chapter, and the live query swaps the
+ * real chapters and sentences in when the alignment lands.
  */
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
@@ -23,6 +24,8 @@ import type { Lang } from '../import/types.ts'
 import { getParagraphs } from '../store/books.ts'
 import { db, type Book, type ParagraphRow } from '../store/db.ts'
 import { useLiveQuery } from '../store/hooks.ts'
+import { ChaptersSheet } from './ChaptersSheet.tsx'
+import { ReaderBar, ReaderFooter, useChrome } from './ReaderChrome.tsx'
 import { runsOf, tokenize, type SentenceSpan } from './tokenize.ts'
 import { estimateHeight, HeightMap, rangeFor, sameRange, type RenderRange, type TextMetrics } from './virtual.ts'
 import './reader.css'
@@ -68,12 +71,24 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
     window.scrollTo(0, 0)
   }, [bookId, chapter])
 
-  if (data === undefined) return <div class="reader">{bar('', '', onBack)}</div>
+  const pageRef = useRef<HTMLDivElement>(null)
+  const chrome = useChrome(`${bookId}/${chapter}`, pageRef)
+  const [contents, setContents] = useState(false)
+
+  if (data === undefined) {
+    return (
+      <div class="reader">
+        <ReaderBar title="" onBack={onBack} />
+      </div>
+    )
+  }
   if (data === null) {
     return (
       <div class="reader">
-        {bar('', '', onBack)}
-        <p class="reader-note">This book is no longer in the library.</p>
+        <ReaderBar title="" onBack={onBack} />
+        <main class="reader-page">
+          <p class="reader-note">This book is no longer in the library.</p>
+        </main>
       </div>
     )
   }
@@ -86,8 +101,8 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
   const heading = current.heading ?? (chapters.length === 1 ? data.book.title : `Chapter ${idx + 1}`)
 
   return (
-    <div class="reader">
-      {bar(data.book.title, `${idx + 1} / ${chapters.length}`, onBack)}
+    <div class={chrome.hidden ? 'reader reader--chrome-hidden' : 'reader'} ref={pageRef}>
+      <ReaderBar title={data.book.title} onBack={onBack} onContents={ready ? () => setContents(true) : undefined} />
       <main class="reader-page" lang={data.lang}>
         <h2 class="chapter-heading">{heading}</h2>
         {!ready && <p class="reader-note">This book is still being prepared. Sentences become tappable once it is aligned.</p>}
@@ -101,19 +116,11 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
           </button>
         </nav>
       </main>
+      <ReaderFooter position={chrome.position} chapter={`${idx + 1} of ${chapters.length}`} />
+      {ready && (
+        <ChaptersSheet open={contents} book={data.book} current={idx} onClose={() => setContents(false)} onChapter={onChapter} />
+      )}
     </div>
-  )
-}
-
-function bar(title: string, position: string, onBack: () => void) {
-  return (
-    <header class="reader-bar">
-      <button type="button" class="reader-back" onClick={onBack}>
-        ‹ Library
-      </button>
-      <div class="reader-bar-title">{title}</div>
-      <div class="reader-bar-side">{position}</div>
-    </header>
   )
 }
 

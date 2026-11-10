@@ -21,7 +21,8 @@
  * imported as `pending`; the caller queues it like a fresh import.
  */
 
-import type { ChapterMap } from '../align/pipeline.ts'
+import type { ChapterMap, ChapterMeta, ChapterPair } from '../align/pipeline.ts'
+import type { ChapterEdits, SideEdits } from '../align/structure.ts'
 import type { Lang } from '../import/types.ts'
 import { newId } from './books.ts'
 import {
@@ -211,28 +212,60 @@ function sourceInfo(v: unknown, what: string): SourceInfo {
 
 function chapterMap(v: unknown, what: string): ChapterMap {
   const o = obj(v, what)
-  const side = (lang: Lang) =>
-    arr(o[lang], `${what}.${lang}`).map((c, i) => {
-      const ch = obj(c, `${what}.${lang}[${i}]`)
+  const sideOf = (v: unknown, name: string): ChapterMeta[] =>
+    arr(v, name).map((c, i) => {
+      const ch = obj(c, `${name}[${i}]`)
       return {
-        idx: int(ch.idx, `${what}.${lang}[${i}].idx`),
-        heading: optional(ch.heading, (t) => str(t, `${what}.${lang}[${i}].heading`)) ?? null,
-        sectionIdx: optional(ch.sectionIdx, (t) => int(t, `${what}.${lang}[${i}].sectionIdx`)) ?? null,
-        paraStart: int(ch.paraStart, `${what}.${lang}[${i}].paraStart`),
-        paraCount: int(ch.paraCount, `${what}.${lang}[${i}].paraCount`),
-        words: int(ch.words, `${what}.${lang}[${i}].words`),
+        idx: int(ch.idx, `${name}[${i}].idx`),
+        heading: optional(ch.heading, (t) => str(t, `${name}[${i}].heading`)) ?? null,
+        sectionIdx: optional(ch.sectionIdx, (t) => int(t, `${name}[${i}].sectionIdx`)) ?? null,
+        paraStart: int(ch.paraStart, `${name}[${i}].paraStart`),
+        paraCount: int(ch.paraCount, `${name}[${i}].paraCount`),
+        words: int(ch.words, `${name}[${i}].words`),
       }
     })
+  const side = (lang: Lang) => sideOf(o[lang], `${what}.${lang}`)
   const de = side('de')
   const en = side('en')
   const pairs = arr(o.pairs, `${what}.pairs`).map((p, i) => {
     const pair = obj(p, `${what}.pairs[${i}]`)
-    return {
+    const out: ChapterPair = {
       de: arr(pair.de, `${what}.pairs[${i}].de`).map((x) => int(x, `${what}.pairs[${i}].de`, 0, de.length - 1)),
       en: arr(pair.en, `${what}.pairs[${i}].en`).map((x) => int(x, `${what}.pairs[${i}].en`, 0, en.length - 1)),
     }
+    if (pair.confidence !== undefined) out.confidence = num(pair.confidence, `${what}.pairs[${i}].confidence`)
+    if (pair.manual === true) out.manual = true
+    return out
   })
-  return { de, en, pairs }
+  const map: ChapterMap = { de, en, pairs }
+  if (o.excluded !== undefined) {
+    const ex = obj(o.excluded, `${what}.excluded`)
+    map.excluded = { de: sideOf(ex.de, `${what}.excluded.de`), en: sideOf(ex.en, `${what}.excluded.en`) }
+  }
+  return map
+}
+
+/** The reader's chapter edits (step 17): lists of chapter keys per side and hand-set pairs. */
+function chapterEdits(v: unknown, what: string): ChapterEdits {
+  const o = obj(v, what)
+  const keys = (x: unknown, name: string) => arr(x, name).map((k) => int(k, name))
+  const side = (x: unknown, name: string): SideEdits => {
+    const s = obj(x, name)
+    const out: SideEdits = {}
+    if (s.include !== undefined) out.include = keys(s.include, `${name}.include`)
+    if (s.exclude !== undefined) out.exclude = keys(s.exclude, `${name}.exclude`)
+    return out
+  }
+  const edits: ChapterEdits = {}
+  if (o.de !== undefined) edits.de = side(o.de, `${what}.de`)
+  if (o.en !== undefined) edits.en = side(o.en, `${what}.en`)
+  if (o.pairs !== undefined) {
+    edits.pairs = arr(o.pairs, `${what}.pairs`).map((p, i) => {
+      const pair = obj(p, `${what}.pairs[${i}]`)
+      return { de: keys(pair.de, `${what}.pairs[${i}].de`), en: keys(pair.en, `${what}.pairs[${i}].en`) }
+    })
+  }
+  return edits
 }
 
 function alignmentState(v: unknown, what: string): AlignmentState {
@@ -288,6 +321,7 @@ function bookRecord(v: unknown): Book {
     sources: { de: sourceInfo(sources.de, 'book.sources.de'), en: sourceInfo(sources.en, 'book.sources.en') },
   }
   if (o.alignment !== undefined) book.alignment = alignmentState(o.alignment, 'book.alignment')
+  if (o.chapterEdits !== undefined) book.chapterEdits = chapterEdits(o.chapterEdits, 'book.chapterEdits')
   return book
 }
 

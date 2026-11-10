@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   alignParagraphs,
+  chapterKey,
   chaptersFromParagraphs,
   chaptersFromSections,
   chaptersOf,
@@ -9,6 +10,8 @@ import {
   estimateRatio,
   lengthCost,
   logErfc,
+  structureFromParagraphs,
+  structureFromSections,
   type ParagraphBead,
   type SectionRange,
 } from '../src/align/structure.ts'
@@ -90,6 +93,47 @@ describe('chaptersFromSections', () => {
 
   it('skips empty sections', () => {
     expect(chaptersFromSections([section(0, 'body', 0, 0)], flat)).toEqual([])
+  })
+
+  it('lists the sections left out, and lets the reader include or exclude a section by its spine index', () => {
+    const sections = [
+      section(0, 'front', 0, 1, { title: 'Preface' }),
+      section(1, 'body', 1, 2, { heading: 'One' }),
+      section(2, 'body', 3, 1, { heading: 'Two' }),
+      section(3, 'body', 4, 0),
+      section(4, 'back', 4, 1, { title: 'Notes' }),
+    ]
+    const plain = structureFromSections(sections, flat)
+    expect(plain.chapters.map((c) => c.heading)).toEqual(['One', 'Two'])
+    expect(plain.excluded.map((c) => [c.idx, c.heading, c.sectionIdx])).toEqual([
+      [0, 'Preface', 0],
+      [1, 'Notes', 4],
+    ])
+    expect(plain.excluded.map(chapterKey)).toEqual([0, 4])
+
+    const edited = structureFromSections(sections, flat, { include: [0], exclude: [2] })
+    expect(edited.chapters.map((c) => [c.idx, c.heading, chapterKey(c)])).toEqual([
+      [0, 'Preface', 0],
+      [1, 'One', 1],
+    ])
+    expect(edited.excluded.map((c) => c.heading)).toEqual(['Two', 'Notes'])
+    // An exclusion wins over an inclusion of the same section; an empty one is never included.
+    expect(structureFromSections(sections, flat, { include: [0, 3], exclude: [0] }).chapters.map((c) => c.heading)).toEqual(['One', 'Two'])
+  })
+})
+
+describe('structureFromParagraphs', () => {
+  it('excludes plain-text chapters by the index of their first paragraph and renumbers the rest', () => {
+    const paragraphs = paras('Vorwort', prose(5), 'I.', prose(5), 'II.', prose(5))
+    const all = chaptersFromParagraphs(paragraphs)
+    expect(all.map(chapterKey)).toEqual([1, 3, 5])
+    const edited = structureFromParagraphs(paragraphs, { exclude: [1], include: [3] })
+    expect(edited.chapters.map((c) => [c.idx, c.heading, c.paraStart])).toEqual([
+      [0, 'I.', 3],
+      [1, 'II.', 5],
+    ])
+    expect(edited.excluded.map((c) => [c.idx, c.heading])).toEqual([[0, 'Vorwort']])
+    expect(structureFromParagraphs(paragraphs).excluded).toEqual([])
   })
 })
 
