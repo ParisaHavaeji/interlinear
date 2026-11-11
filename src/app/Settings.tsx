@@ -1,20 +1,32 @@
 import { useEffect } from 'preact/hooks'
 import { dictStateLabel, formatBytes, percentOf } from '../dict/download.ts'
 import { ensureDictionary, useDictState } from '../dict/installer.ts'
+import { ARTICLE_COLOURS, DEFAULT_ARTICLE_COLOURS, sanitizeArticleColours, type ArticleColour, type ArticleColours } from '../reader/word.ts'
+import { ARTICLE_COLOURS_KEY, setSetting, useSetting } from '../store/settings.ts'
 import './settings.css'
 
 interface Props {
   onBack: () => void
 }
 
+const ARTICLE_ROWS: { gender: keyof ArticleColours; article: string }[] = [
+  { gender: 'm', article: 'der' },
+  { gender: 'f', article: 'die' },
+  { gender: 'n', article: 'das' },
+]
+
 /**
- * Settings (plan.md step 23): for now the dictionary's place on this device, with the download's
+ * Settings (plan.md step 23): the dictionary's place on this device, with the download's
  * progress, a Retry when it failed, and a check for a newer dictionary. Opening the screen also
- * starts the download when it has not started (a launch offline, say). Later steps add the
- * reading preferences that are not in the aA menu.
+ * starts the download when it has not started (a launch offline, say). Step 24 adds the colours
+ * the word card gives der / die / das. Later steps add the reading preferences that are not in
+ * the aA menu.
  */
 export function Settings({ onBack }: Props) {
   const dict = useDictState()
+  const colours = useSetting(ARTICLE_COLOURS_KEY, sanitizeArticleColours)
+  const setColour = (gender: keyof ArticleColours, colour: ArticleColour) => void setSetting(ARTICLE_COLOURS_KEY, { ...colours, [gender]: colour })
+  const customised = (['m', 'f', 'n'] as const).some((g) => colours[g] !== DEFAULT_ARTICLE_COLOURS[g])
 
   useEffect(() => {
     void ensureDictionary()
@@ -74,6 +86,37 @@ export function Settings({ onBack }: Props) {
                 </button>
               )}
             </>
+          )}
+        </p>
+
+        <h2 class="group-title">Articles</h2>
+        <div class="group">
+          {ARTICLE_ROWS.map(({ gender, article }) => (
+            <div class="row row--static row--swatches" key={gender}>
+              <span class={`row-label article-label--${colours[gender]}`} lang="de">
+                {article}
+              </span>
+              <div class="swatches" role="radiogroup" aria-label={`Colour of ${article}`}>
+                {ARTICLE_COLOURS.map((c) => (
+                  <button
+                    type="button"
+                    class={`swatch swatch--${c.key}`}
+                    aria-label={c.label}
+                    aria-pressed={colours[gender] === c.key}
+                    title={c.label}
+                    onClick={() => setColour(gender, c.key)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p class="group-footer">
+          The word card shows a noun’s article in these colours, so the gender is seen before it is read.{' '}
+          {customised && (
+            <button type="button" class="link-btn" onClick={() => void setSetting(ARTICLE_COLOURS_KEY, DEFAULT_ARTICLE_COLOURS)}>
+              Reset
+            </button>
           )}
         </p>
       </main>

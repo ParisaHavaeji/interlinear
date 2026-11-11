@@ -179,9 +179,11 @@
 
 /* Sentences (plan.md step 19): the bead on the card gets Books' soft yellow highlight, whole
    across line breaks thanks to the clone; sentences of uncertain beads a faint dotted underline.
-   Word spans carry no styling yet (step 24 highlights the tapped word). A long-press on a
-   sentence opens the repair card (step 20), so the browser's own long-press behaviour, text
-   selection and the iOS callout, is turned off on sentences; Copy on the card covers copying. */
+   In word mode (step 24) the tapped word gets the highlight instead, and every sentence ends in
+   a small chevron, the tap target for the sentence card now that the words themselves open the
+   word card (§1.6). A long-press on a sentence opens the repair card (step 20), so the browser's
+   own long-press behaviour, text selection and the iOS callout, is turned off on sentences; Copy
+   on the card covers copying. */
 .sent {
   --highlight: rgba(255, 214, 10, 0.42);
   border-radius: 4px;
@@ -209,6 +211,34 @@
   text-decoration-color: color-mix(in srgb, var(--fg-2) 65%, transparent);
   text-decoration-thickness: 1px;
   text-underline-offset: 0.2em;
+}
+
+/* The chevron after a sentence: faint, in the UI font, padded a little so a finger finds it. A
+   tap on it lands on the sentence span itself, not on a word, and so opens the sentence card. */
+.sent::after {
+  content: '›';
+  display: inline-block;
+  font: 600 0.75em/1 var(--font-ui);
+  color: var(--fg-2);
+  opacity: 0.5;
+  padding: 0 0.12em 0 0.18em;
+  vertical-align: 0.08em;
+  text-decoration: none;
+}
+
+.sent--active::after {
+  opacity: 0.8;
+}
+
+/* The tapped word (step 24) carries the highlight on its own; its sentence does not. */
+.w {
+  border-radius: 3px;
+  transition: background-color 160ms ease-out;
+}
+
+.w--active {
+  background-color: var(--highlight);
+  box-shadow: 0 0 0 2px var(--highlight);
 }
 
 .chapter-spacer {

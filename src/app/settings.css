@@ -71,6 +71,82 @@
   transition: width 200ms ease-out;
 }
 
+/* --- Article colours (plan.md step 24) ----------------------------------
+   One row per article, its label in the chosen colour, the swatches to pick from on the right. */
+
+.row--swatches {
+  grid-template-columns: 56px 1fr;
+}
+
+.row--swatches .row-label {
+  font-family: var(--font-serif);
+  font-weight: 600;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.swatch {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 13px;
+  padding: 0;
+  background: var(--swatch, var(--fg-2));
+  cursor: pointer;
+  position: relative;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.12);
+}
+
+.swatch--none {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px var(--fg-2);
+}
+
+.swatch--none::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 70%;
+  height: 1.5px;
+  background: var(--fg-2);
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.swatch[aria-pressed='true'] {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+.swatch:active {
+  opacity: 0.6;
+}
+
+.swatch--blue { --swatch: var(--c-blue); }
+.swatch--red { --swatch: var(--c-red); }
+.swatch--green { --swatch: var(--c-green); }
+.swatch--orange { --swatch: var(--c-orange); }
+.swatch--purple { --swatch: var(--c-purple); }
+.swatch--pink { --swatch: var(--c-pink); }
+.swatch--teal { --swatch: var(--c-teal); }
+.swatch--brown { --swatch: var(--c-brown); }
+.swatch--grey { --swatch: var(--c-grey); }
+
+.article-label--blue { color: var(--c-blue); }
+.article-label--red { color: var(--c-red); }
+.article-label--green { color: var(--c-green); }
+.article-label--orange { color: var(--c-orange); }
+.article-label--purple { color: var(--c-purple); }
+.article-label--pink { color: var(--c-pink); }
+.article-label--teal { color: var(--c-teal); }
+.article-label--brown { color: var(--c-brown); }
+.article-label--grey { color: var(--c-grey); }
+
 @media (prefers-color-scheme: dark) {
   .content--settings {
     background: #000;

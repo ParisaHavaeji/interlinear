@@ -29,6 +29,13 @@
  * the card in repair mode (step 20, `RepairCard.tsx`): the bead can be shifted, merged, split or
  * reset by hand, each change saved at once through `align/repair.ts`, which pins the bead and
  * re-aligns the rest of its paragraph around it. The live query then redraws page and card.
+ *
+ * Tapping a word (step 24, §1.6) opens the same card in word mode (`WordCard.tsx`): the word is
+ * highlighted on the page and looked up in the dictionary of steps 21–23 (`dict/shards.ts`,
+ * with the sentence for separable verbs); the card shows the best headword with its article
+ * coloured by gender, the alternatives, and the sentence with a link to its translation. A tap
+ * on a sentence's punctuation, its whitespace or the small chevron after it opens the sentence
+ * card instead. The model is `reader/word.ts`.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
@@ -37,7 +44,11 @@ import type { Lang } from '../import/types.ts'
 import { getParagraphs } from '../store/books.ts'
 import { db, type Book, type ParagraphRow } from '../store/db.ts'
 import { applyRepair, BlockIndex, describeBead, type RepairOp } from '../align/repair.ts'
+import { useDictState } from '../dict/installer.ts'
+import type { LookupResult } from '../dict/lookup.ts'
+import { dictionary } from '../dict/shards.ts'
 import { useLiveQuery } from '../store/hooks.ts'
+import { ARTICLE_COLOURS_KEY, useSetting } from '../store/settings.ts'
 import { BottomCard } from '../ui/BottomCard.tsx'
 import { BeadIndex, revealDelta, sentenceCard, stepSentence } from './card.ts'
 import { ChaptersSheet } from './ChaptersSheet.tsx'
@@ -46,6 +57,8 @@ import { RepairCardBody, RepairCardHeader } from './RepairCard.tsx'
 import { SentenceCardBody, SentenceCardHeader } from './SentenceCard.tsx'
 import { runsOf, tokenize, type SentenceSpan } from './tokenize.ts'
 import { estimateHeight, HeightMap, rangeFor, sameRange, type RenderRange, type TextMetrics } from './virtual.ts'
+import { dictHint, lookupErrorMessage, sameWord, sanitizeArticleColours, wordCard, wordCopyText, type WordRef } from './word.ts'
+import { WordCardBody, WordCardHeader } from './WordCard.tsx'
 import './reader.css'
 
 interface Props {
@@ -129,22 +142,62 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
   const [repairing, setRepairing] = useState(false)
   const [repairBusy, setRepairBusy] = useState(false)
   const [repairError, setRepairError] = useState<string | null>(null)
+  /** The tapped word (step 24), in the active sentence; null while the card is not in word mode. */
+  const [word, setWord] = useState<WordRef | null>(null)
+  /** The lookup for `word`: its result once it arrived, or why it failed. */
+  const [lookup, setLookup] = useState<{ word: WordRef; result: LookupResult | null; error: string | null } | null>(null)
+  /** Which of the result's headwords the card shows in full. */
+  const [pick, setPick] = useState(0)
+  const dictState = useDictState()
+  const colours = useSetting(ARTICLE_COLOURS_KEY, sanitizeArticleColours)
 
   // A chapter change closes the card; so does a re-alignment that dropped the sentence.
   useEffect(() => {
     setActive(null)
     setRepairing(false)
+    setWord(null)
   }, [bookId, chapter])
   useEffect(() => {
     if (active !== null && data != null && !data.text.has(active)) setActive(null)
   }, [data, active])
   useEffect(() => {
-    if (active === null) setRepairing(false)
+    if (active === null) {
+      setRepairing(false)
+      setWord(null)
+    }
   }, [active])
+
+  // Look the tapped word up, with its sentence for separable verbs. A later tap cancels the
+  // result of an earlier one; the card shows "Looking up…" in between.
+  useEffect(() => {
+    setPick(0)
+    if (word === null) {
+      setLookup(null)
+      return
+    }
+    let cancelled = false
+    setLookup({ word, result: null, error: null })
+    const sentence = data?.text.get(word.sentence)
+    dictionary()
+      .lookup(word.token, { sentence, offset: word.offset })
+      .then(
+        (result) => {
+          if (!cancelled) setLookup({ word, result, error: null })
+        },
+        (err: unknown) => {
+          console.error('lookup failed', err)
+          if (!cancelled) setLookup({ word, result: null, error: lookupErrorMessage(err, navigator.onLine !== false) })
+        },
+      )
+    return () => {
+      cancelled = true
+    }
+  }, [word])
 
   const openRepair = (idx: number) => {
     setActive(idx)
     setRepairing(true)
+    setWord(null)
     setRepairError(null)
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(10)
   }
@@ -188,9 +241,21 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
       skipClick.current = false
       return
     }
-    const sent = (e.target as Element | null)?.closest<HTMLElement>('.sent')
+    const target = e.target as Element | null
+    const sent = target?.closest<HTMLElement>('.sent')
     if (sent === undefined || sent === null) return
-    setActive(Number(sent.dataset.sentence))
+    const idx = Number(sent.dataset.sentence)
+    setActive(idx)
+    setRepairing(false)
+    // A word opens the word card; punctuation, whitespace or the chevron after the sentence
+    // open the sentence card (§1.6).
+    const w = target?.closest<HTMLElement>('.w')
+    if (w === undefined || w === null || !sent.contains(w)) {
+      setWord(null)
+      return
+    }
+    const next: WordRef = { sentence: idx, offset: Number(w.dataset.o), token: w.textContent ?? '' }
+    setWord((prev) => (sameWord(prev, next) ? prev : next))
   }
 
   // A right-click (and, on Android, the long-press the browser would turn into a context menu).
@@ -239,18 +304,22 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
   }, [data, current])
 
   const card = data == null || active === null ? null : sentenceCard(data.beads, active)
-  const highlight = useMemo(() => (card === null ? null : new Set(card.highlight)), [card])
+  // In word mode the word alone is highlighted, not its bead.
+  const highlight = useMemo(() => (card === null || word !== null ? null : new Set(card.highlight)), [card, word])
   const uncertain = useMemo(() => data?.beads.uncertainSentences() ?? EMPTY, [data])
+  const wordView = useMemo(() => (lookup?.result == null ? null : wordCard(lookup.result, pick)), [lookup, pick])
 
-  // Keep the highlighted sentence between the top bar and the card, when the card opens, grows
-  // or moves on. Smoothly, unless the reader asked for less motion.
+  // Keep the highlighted sentence (or word) between the top bar and the card, when the card
+  // opens, grows or moves on. Smoothly, unless the reader asked for less motion.
   useEffect(() => {
     if (card === null || cardHeight === 0) return
+    const targets =
+      word !== null
+        ? [...document.querySelectorAll('.w--active')]
+        : card.highlight.map((idx) => document.querySelector(`.sent[data-sentence="${idx}"]`)).filter((el): el is Element => el !== null)
     let top = Infinity
     let bottom = -Infinity
-    for (const idx of card.highlight) {
-      const el = document.querySelector(`.sent[data-sentence="${idx}"]`)
-      if (el === null) continue
+    for (const el of targets) {
       const rect = el.getBoundingClientRect()
       top = Math.min(top, rect.top)
       bottom = Math.max(bottom, rect.bottom)
@@ -262,7 +331,7 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
     if (delta === 0) return
     const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
     window.scrollBy({ top: delta, behavior: reduce ? 'auto' : 'smooth' })
-  }, [card, cardHeight])
+  }, [card, word, cardHeight])
 
   const step = (dir: -1 | 1) => {
     if (data == null || active === null) return
@@ -271,9 +340,9 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
   }
   const canStep = (dir: -1 | 1) => data != null && active !== null && stepSentence(data.beads, chapterSentences, active, dir) !== null
 
-  // ← / → step through the chapter while the card is open.
+  // ← / → step through the chapter while the sentence card is open.
   useEffect(() => {
-    if (active === null) return
+    if (active === null || word !== null) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') step(-1)
       else if (e.key === 'ArrowRight') step(1)
@@ -282,13 +351,18 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [active, data, chapterSentences])
+  }, [active, word, data, chapterSentences])
 
   const copy = async () => {
     if (data == null || card === null) return
     const original = card.highlight.map((i) => data.text.get(i) ?? '').join(' ')
     const translation = card.translation.map((i) => data.otherText.get(i) ?? '').join(' ')
     await navigator.clipboard.writeText(translation === '' ? original : `${original}\n${translation}`)
+  }
+
+  const copyWord = async () => {
+    if (word === null) return
+    await navigator.clipboard.writeText(wordView === null ? word.token : wordCopyText(wordView, word.token))
   }
 
   if (data === undefined) {
@@ -334,6 +408,7 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
           sentences={data.sentences}
           highlight={highlight}
           uncertain={uncertain}
+          word={word}
         />
         <nav class="chapter-nav" aria-label="Chapters">
           <button type="button" disabled={idx === 0} onClick={() => onChapter(idx - 1)}>
@@ -356,16 +431,32 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
           if (target === null || target.closest('.sent') === null) setActive(null)
         }}
         onHeightChange={setCardHeight}
-        label={repairing ? 'Fix alignment' : 'Sentence'}
+        label={word !== null ? 'Word' : repairing ? 'Fix alignment' : 'Sentence'}
         header={
-          repairing ? (
+          word !== null ? (
+            <WordCardHeader word={word} lang={data.lang} />
+          ) : repairing ? (
             <RepairCardHeader onDone={() => setRepairing(false)} />
           ) : (
             <SentenceCardHeader heading={heading} onPrev={canStep(-1) ? () => step(-1) : undefined} onNext={canStep(1) ? () => step(1) : undefined} />
           )
         }
       >
-        {card !== null && repairing && repairText !== null && (
+        {card !== null && word !== null && (
+          <WordCardBody
+            word={word}
+            view={lookup !== null && sameWord(lookup.word, word) ? wordView : null}
+            error={lookup !== null && sameWord(lookup.word, word) ? lookup.error : null}
+            dictHint={dictHint(dictState)}
+            colours={colours}
+            lang={data.lang}
+            sentence={data.text.get(word.sentence)}
+            onPick={setPick}
+            onShowSentence={() => setWord(null)}
+            onCopy={copyWord}
+          />
+        )}
+        {card !== null && word === null && repairing && repairText !== null && (
           <RepairCardBody
             description={repairDescription}
             langs={[data.lang, data.otherLang]}
@@ -375,7 +466,7 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
             error={repairError}
           />
         )}
-        {card !== null && !repairing && (
+        {card !== null && word === null && !repairing && (
           <SentenceCardBody
             card={card}
             lang={data.otherLang}
@@ -429,9 +520,11 @@ interface BodyProps {
   highlight: ReadonlySet<number> | null
   /** Sentences of uncertain beads (dotted underline). */
   uncertain: ReadonlySet<number>
+  /** The word on the card (step 24), highlighted on the page; null in the other modes. */
+  word: WordRef | null
 }
 
-function ChapterBody({ paragraphs, sentences, highlight, uncertain }: BodyProps) {
+function ChapterBody({ paragraphs, sentences, highlight, uncertain, word }: BodyProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<HeightMap | null>(null)
   const widthRef = useRef(-1)
@@ -499,7 +592,7 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain }: BodyProps)
   const items = []
   for (let i = range.start; i < Math.min(range.end, paragraphs.length); i++) {
     const row = paragraphs[i]
-    items.push(<Paragraph key={row.idx} pos={i} row={row} sentences={sentences.get(row.idx)} highlight={highlight} uncertain={uncertain} />)
+    items.push(<Paragraph key={row.idx} pos={i} row={row} sentences={sentences.get(row.idx)} highlight={highlight} uncertain={uncertain} word={word} />)
   }
   return (
     <div class="chapter-body" ref={listRef}>
@@ -520,18 +613,19 @@ interface ParagraphProps {
   sentences: readonly SentenceSpan[] | undefined
   highlight: ReadonlySet<number> | null
   uncertain: ReadonlySet<number>
+  word: WordRef | null
 }
 
-function Paragraph({ pos, row, sentences, highlight, uncertain }: ParagraphProps) {
+function Paragraph({ pos, row, sentences, highlight, uncertain, word }: ParagraphProps) {
   const runs = useMemo(() => runsOf(row.text, sentences ?? []), [row.text, sentences])
   return (
     <p class={pos === 0 ? 'para para--first' : 'para'} data-idx={pos} data-para={row.idx}>
       {runs.map((run) =>
         run.sentenceIdx === null ? (
-          words(run.text)
+          words(run.text, null)
         ) : (
           <span class={sentenceClass(run.sentenceIdx, highlight, uncertain)} data-sentence={run.sentenceIdx}>
-            {words(run.text)}
+            {words(run.text, word !== null && word.sentence === run.sentenceIdx ? word.offset : null)}
           </span>
         ),
       )}
@@ -546,6 +640,21 @@ function sentenceClass(idx: number, highlight: ReadonlySet<number> | null, uncer
   return cls
 }
 
-function words(text: string) {
-  return tokenize(text).map((t) => (t.word ? <span class="w">{t.text}</span> : t.text))
+/**
+ * The tokens of a run: a `<span class="w">` per word carrying its offset in the run (what a tap
+ * reports, and what the lookup needs to find the word in its sentence), plain text otherwise.
+ * The word at `activeOffset`, if any, is the one on the card.
+ */
+function words(text: string, activeOffset: number | null) {
+  let pos = 0
+  return tokenize(text).map((t) => {
+    const start = pos
+    pos += t.text.length
+    if (!t.word) return t.text
+    return (
+      <span class={start === activeOffset ? 'w w--active' : 'w'} data-o={start}>
+        {t.text}
+      </span>
+    )
+  })
 }

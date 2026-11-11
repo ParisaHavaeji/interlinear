@@ -265,3 +265,177 @@
 .card-note--error {
   color: #ff3b30;
 }
+
+/* --- Word mode (plan.md step 24, §1.6) ----------------------------------- */
+
+/* The header shows the word as printed, not an uppercase label. */
+.card-nav--word {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.card-title--word {
+  font: 600 17px/1.3 var(--font-serif);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg);
+}
+
+.word-entries {
+  margin: 0 0 10px;
+}
+
+.word-entry + .word-entry {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--separator);
+}
+
+/* "der Weg  noun · pl. Wege": the article coloured by gender, the lemma in the reading font. */
+.word-head {
+  margin: 0 0 4px;
+  font: 22px/1.3 var(--font-serif);
+  overflow-wrap: break-word;
+}
+
+.word-article {
+  font-weight: 600;
+}
+
+.word-lemma {
+  font-weight: 600;
+}
+
+.word-pos {
+  display: inline-block;
+  margin-left: 8px;
+  font: 400 13px/1.3 var(--font-ui);
+  color: var(--fg-2);
+  vertical-align: 0.1em;
+}
+
+.word-article--blue,
+.word-alt-article--blue { color: var(--c-blue); }
+.word-article--red,
+.word-alt-article--red { color: var(--c-red); }
+.word-article--green,
+.word-alt-article--green { color: var(--c-green); }
+.word-article--orange,
+.word-alt-article--orange { color: var(--c-orange); }
+.word-article--purple,
+.word-alt-article--purple { color: var(--c-purple); }
+.word-article--pink,
+.word-alt-article--pink { color: var(--c-pink); }
+.word-article--teal,
+.word-alt-article--teal { color: var(--c-teal); }
+.word-article--brown,
+.word-alt-article--brown { color: var(--c-brown); }
+.word-article--grey,
+.word-alt-article--grey { color: var(--c-grey); }
+.word-article--none,
+.word-alt-article--none { color: inherit; }
+
+.word-glosses {
+  margin: 0;
+  padding-left: 22px;
+  font: 17px/1.4 var(--font-ui);
+}
+
+.word-glosses li + li {
+  margin-top: 2px;
+}
+
+.word-glosses li::marker {
+  color: var(--fg-2);
+  font-size: 14px;
+}
+
+/* How the word reached the headword, and the sources. */
+.word-meta {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
+/* The other headwords, one line each; a tap shows that one in full. */
+.word-alts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.word-alts-label {
+  color: var(--fg-2);
+  font-size: 13px;
+}
+
+.word-alt {
+  border: 0;
+  border-radius: 8px;
+  padding: 3px 8px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--fg);
+  font: 14px/1.3 var(--font-ui);
+  cursor: pointer;
+  text-align: left;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.word-alt:active {
+  opacity: 0.6;
+}
+
+.word-alt-lemma {
+  font-weight: 600;
+  font-family: var(--font-serif);
+  font-size: 15px;
+}
+
+.word-alt-article {
+  font-weight: 600;
+}
+
+.word-alt-pos {
+  margin-left: 6px;
+  color: var(--fg-2);
+  font-size: 12px;
+}
+
+.word-alt-gloss {
+  margin-left: 6px;
+  color: var(--fg-2);
+}
+
+/* The sentence the word came from, with the word marked, and the way to its translation. */
+.word-sentence {
+  margin: 0 0 4px;
+  font: 15px/1.4 var(--font-serif);
+  color: var(--fg-2);
+  overflow-wrap: break-word;
+}
+
+.word-mark {
+  background: var(--highlight, rgba(255, 214, 10, 0.42));
+  color: var(--fg);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.word-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: 500 14px var(--font-ui);
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.word-link:active {
+  opacity: 0.5;
+}
