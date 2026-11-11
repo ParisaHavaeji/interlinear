@@ -1,27 +1,76 @@
+/**
+ * The Library (plan.md step 29, §1.8): Books' bookshelf. A "Reading Now" card at the top shows
+ * the aligned book opened most recently with its cover, the chapter it is open at and how much
+ * of it is read, and opens it where it was left; the shelf grid below carries every book, each
+ * tile a generated cover with the title and author, its read share once it has been opened, and
+ * the alignment's progress, status and actions while it has any. A tile swipes to the left to
+ * uncover Delete (`ui/SwipeRow.tsx`, as the bookmark rows of step 26), which asks first in a
+ * sheet, since a book takes its alignment and bookmarks with it; the tile then shrinks away. The
+ * progress rows come from the Reader (`reader/progress.ts`) and are read live, so the card and
+ * the notes follow reading in another tab too.
+ */
+
 import { useEffect, useState } from 'preact/hooks'
-import { clearAlignmentError, resumeAlignments, startAlignment, type AlignmentJob } from '../align/jobs.ts'
+import { cancelAlignment, clearAlignmentError, resumeAlignments, startAlignment, type AlignmentJob } from '../align/jobs.ts'
 import { isPrealignedBook } from '../align/prealigned.ts'
+import { chapterLabel, percentRead, progressLabel, readingNow, type ReadingNow } from '../reader/progress.ts'
+import { deleteBook } from '../store/books.ts'
 import { bundleFileName, exportBundle } from '../store/bundle.ts'
-import type { Book } from '../store/db.ts'
-import { useAlignmentJobs, useBooks } from '../store/hooks.ts'
+import { db, type Book, type ProgressRow } from '../store/db.ts'
+import { useAlignmentJobs, useBooks, useLiveQuery, useProgress } from '../store/hooks.ts'
+import { BottomSheet } from '../ui/BottomSheet.tsx'
 import { Cover } from '../ui/Cover.tsx'
 import { shareOrDownload } from '../ui/download.ts'
+import { SWIPE_SETTLE_MS, SwipeRow } from '../ui/SwipeRow.tsx'
 import { AddBookSheet } from './AddBookSheet.tsx'
 import { RealignSheet } from './RealignSheet.tsx'
 import { BOOKMARKS_HASH, debugHash, readHash, SETTINGS_HASH } from './routes.ts'
 import './library.css'
 
+/** Width of the Delete uncovered behind a shelf tile; narrower than a list row's, the tile being narrow. */
+const SHELF_ACTION_WIDTH = 72
+/** The tile's vanishing animation (library.css) runs this long after a confirmed Delete. */
+const VANISH_MS = SWIPE_SETTLE_MS + 160
+
 /** Library tab: Books-style bookshelf grid with an "Add book" sheet. */
 export function Library() {
   const books = useBooks()
   const jobs = useAlignmentJobs()
+  const progress = useProgress()
   const [adding, setAdding] = useState(false)
   const [realigning, setRealigning] = useState<Book | null>(null)
+  /** The tile whose Delete is uncovered, if any; one at a time. */
+  const [openId, setOpenId] = useState<string | null>(null)
+  /** The book Delete was chosen for, awaiting the answer in the sheet. */
+  const [asking, setAsking] = useState<Book | null>(null)
+  /** The book being removed: its tile vanishes, then the rows go. */
+  const [removingId, setRemovingId] = useState<string | null>(null)
 
   // Books whose alignment was interrupted by a reload pick up where the queue left off.
   useEffect(() => {
     void resumeAlignments()
   }, [])
+
+  const confirmDelete = (book: Book) => {
+    setAsking(null)
+    setRemovingId(book.id)
+    cancelAlignment(book.id)
+    window.setTimeout(() => {
+      deleteBook(book.id)
+        .catch((err: unknown) => console.error('could not delete the book', err))
+        .finally(() => {
+          setRemovingId((id) => (id === book.id ? null : id))
+          setOpenId((id) => (id === book.id ? null : id))
+        })
+    }, VANISH_MS)
+  }
+  const cancelDelete = () => {
+    setAsking(null)
+    setOpenId(null)
+  }
+
+  const loading = books === undefined || progress === undefined
+  const now = loading ? null : readingNow(books, progress)
 
   return (
     <div class="screen">
@@ -51,16 +100,36 @@ export function Library() {
         </div>
       </header>
 
-      <main class={`content ${books && books.length > 0 ? 'content--shelf' : ''}`}>
-        {books === undefined ? null : books.length === 0 ? (
+      <main
+        class={`content ${!loading && books.length > 0 ? 'content--shelf' : ''}`}
+        onClick={(e) => {
+          // A tap on the page outside the tiles shuts the open one.
+          if ((e.target as Element | null)?.closest('.swipe') === null) setOpenId(null)
+        }}
+      >
+        {loading ? null : books.length === 0 ? (
           <EmptyShelf onAdd={() => setAdding(true)} />
         ) : (
-          <Shelf books={books} jobs={jobs} onRealign={setRealigning} />
+          <>
+            {now !== null && <ReadingNowCard now={now} />}
+            {now !== null && <h2 class="section-title">Library</h2>}
+            <Shelf
+              books={books}
+              jobs={jobs}
+              progress={progress}
+              openId={openId}
+              removingId={removingId}
+              onOpenChange={(id, open) => setOpenId((prev) => (open ? id : prev === id ? null : prev))}
+              onDelete={setAsking}
+              onRealign={setRealigning}
+            />
+          </>
         )}
       </main>
 
       <AddBookSheet open={adding} onClose={() => setAdding(false)} />
       <RealignSheet book={realigning} onClose={() => setRealigning(null)} />
+      <DeleteBookSheet book={asking} onCancel={cancelDelete} onConfirm={confirmDelete} />
     </div>
   )
 }
@@ -78,6 +147,36 @@ function EmptyShelf({ onAdd }: { onAdd: () => void }) {
   )
 }
 
+/** The book opened most recently (step 29): cover, chapter, read share; a tap opens it where it was left. */
+function ReadingNowCard({ now: { book, progress } }: { now: ReadingNow }) {
+  const chapter = chapterLabel(book, progress.chapter)
+  const percent = percentRead(progress.read)
+  return (
+    <section class="now" aria-labelledby="now-title">
+      <h2 class="section-title" id="now-title">
+        Reading Now
+      </h2>
+      <a class="now-card" href={readHash(book.id)} draggable={false} aria-label={`Continue reading ${book.title}`}>
+        <div class="now-cover">
+          <Cover title={book.title} author={book.author} colours={book.cover} />
+        </div>
+        <div class="now-text">
+          <div class="now-title">{book.title}</div>
+          <div class="now-author">{book.author}</div>
+          {chapter !== null && <div class="now-chapter">{chapter}</div>}
+          <div class="now-progress" role="progressbar" aria-label="Read" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+            <div class="now-progress-bar" style={{ width: `${percent}%` }} />
+          </div>
+          <div class="now-percent">{progressLabel(progress.read)}</div>
+        </div>
+        <svg class="now-chevron" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="m9 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </a>
+    </section>
+  )
+}
+
 const STAGE_LABELS: Record<AlignmentJob['stage'], string> = {
   queued: 'Waiting',
   structure: 'Reading chapters',
@@ -92,14 +191,29 @@ const STAGE_LABELS: Record<AlignmentJob['stage'], string> = {
 interface ShelfProps {
   books: Book[]
   jobs: ReadonlyMap<string, AlignmentJob>
+  progress: ReadonlyMap<string, ProgressRow>
+  openId: string | null
+  removingId: string | null
+  onOpenChange: (id: string, open: boolean) => void
+  onDelete: (book: Book) => void
   onRealign: (book: Book) => void
 }
 
-function Shelf({ books, jobs, onRealign }: ShelfProps) {
+function Shelf({ books, jobs, progress, openId, removingId, onOpenChange, onDelete, onRealign }: ShelfProps) {
   return (
     <ul class="shelf" aria-label="Books">
       {books.map((b) => (
-        <ShelfItem key={b.id} book={b} job={jobs.get(b.id)} onRealign={onRealign} />
+        <ShelfItem
+          key={b.id}
+          book={b}
+          job={jobs.get(b.id)}
+          progress={progress.get(b.id)}
+          open={openId === b.id}
+          removing={removingId === b.id}
+          onOpenChange={(open) => onOpenChange(b.id, open)}
+          onDelete={() => onDelete(b)}
+          onRealign={onRealign}
+        />
       ))}
     </ul>
   )
@@ -121,7 +235,18 @@ async function exportBook(book: Book): Promise<string | null> {
   }
 }
 
-function ShelfItem({ book, job, onRealign }: { book: Book; job: AlignmentJob | undefined; onRealign: (book: Book) => void }) {
+interface ItemProps {
+  book: Book
+  job: AlignmentJob | undefined
+  progress: ProgressRow | undefined
+  open: boolean
+  removing: boolean
+  onOpenChange: (open: boolean) => void
+  onDelete: () => void
+  onRealign: (book: Book) => void
+}
+
+function ShelfItem({ book, job, progress, open, removing, onOpenChange, onDelete, onRealign }: ItemProps) {
   const status = book.alignment?.status ?? 'pending'
   const busy = job !== undefined || status === 'pending' || status === 'aligning'
   const fraction = job?.fraction ?? 0
@@ -152,6 +277,8 @@ function ShelfItem({ book, job, onRealign }: { book: Book; job: AlignmentJob | u
         Waiting…
       </div>
     )
+  } else if (status === 'ready' && progress !== undefined) {
+    note = <div class="shelf-note shelf-note--progress">{progressLabel(progress.read)}</div>
   }
   const cover = (
     <>
@@ -161,13 +288,13 @@ function ShelfItem({ book, job, onRealign }: { book: Book; job: AlignmentJob | u
     </>
   )
   return (
-    <li class="shelf-item">
+    <SwipeRow class="shelf-item" plain ask open={open} removing={removing} onOpenChange={onOpenChange} onDelete={onDelete} actionWidth={SHELF_ACTION_WIDTH}>
       {status === 'ready' ? (
-        <a class="shelf-link" href={readHash(book.id, 0)} aria-label={`Read ${book.title}`}>
+        <a class="shelf-link" href={readHash(book.id)} draggable={false} aria-label={`Read ${book.title}`}>
           {cover}
         </a>
       ) : (
-        cover
+        <div class="shelf-link">{cover}</div>
       )}
       {note}
       {status === 'ready' && job === undefined && (
@@ -206,6 +333,31 @@ function ShelfItem({ book, job, onRealign }: { book: Book; job: AlignmentJob | u
           {exportError}
         </div>
       )}
-    </li>
+    </SwipeRow>
+  )
+}
+
+interface DeleteProps {
+  /** The book Delete was chosen for; null keeps the sheet closed. */
+  book: Book | null
+  onCancel: () => void
+  onConfirm: (book: Book) => void
+}
+
+/** Asks before a book goes (step 29), naming what goes with it. */
+function DeleteBookSheet({ book, onCancel, onConfirm }: DeleteProps) {
+  const count = useLiveQuery(() => (book === null ? Promise.resolve(0) : db().bookmarks.where('bookId').equals(book.id).count()), [book?.id])
+  if (book === null) return null
+  const what = count === undefined || count === 0 ? 'The book and its alignment' : count === 1 ? 'The book, its alignment and its bookmark' : `The book, its alignment and its ${count} bookmarks`
+  return (
+    <BottomSheet open onClose={onCancel} title={`Delete “${book.title}”?`}>
+      <p class="sheet-text">{what} are removed from this device. Bundles and bookmark files already exported are not affected.</p>
+      <button type="button" class="btn-destructive" onClick={() => onConfirm(book)}>
+        Delete Book
+      </button>
+      <button type="button" class="btn-plain" onClick={onCancel}>
+        Cancel
+      </button>
+    </BottomSheet>
   )
 }

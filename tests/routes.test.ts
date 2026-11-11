@@ -3,7 +3,9 @@ import { BOOKMARKS_HASH, bookmarksHash, debugHash, parseRoute, readHash, SETTING
 
 describe('parseRoute', () => {
   it('reads the reader route with and without a chapter', () => {
-    expect(parseRoute('#/read/abc')).toEqual({ screen: 'read', bookId: 'abc', chapter: 0 })
+    // Without a chapter the book opens where it was last read (step 29).
+    expect(parseRoute('#/read/abc')).toEqual({ screen: 'read', bookId: 'abc', chapter: null })
+    expect(parseRoute('#/read/abc/0')).toEqual({ screen: 'read', bookId: 'abc', chapter: 0 })
     expect(parseRoute('#/read/abc/7')).toEqual({ screen: 'read', bookId: 'abc', chapter: 7 })
     expect(parseRoute('#/read/a%2Fb%20c/2')).toEqual({ screen: 'read', bookId: 'a/b c', chapter: 2 })
   })
@@ -44,7 +46,10 @@ describe('parseRoute', () => {
     expect(parseRoute(bookmarksHash())).toEqual({ screen: 'bookmarks' })
     expect(parseRoute(bookmarksHash({ id: 'a/b', chapter: 4 }))).toEqual({ screen: 'bookmarks', book: { id: 'a/b', chapter: 4 } })
     expect(parseRoute(debugHash('a/b'))).toEqual({ screen: 'debug', bookId: 'a/b' })
-    expect(readHash('x', 0)).toBe('#/read/x')
+    expect(parseRoute(readHash('a/b'))).toEqual({ screen: 'read', bookId: 'a/b', chapter: null })
+    expect(readHash('x')).toBe('#/read/x')
+    expect(readHash('x', 0)).toBe('#/read/x/0')
     expect(readHash('x', 0, 'b')).toBe('#/read/x/0/b')
+    expect(readHash('x', null, 'b')).toBe('#/read/x/0/b')
   })
 })

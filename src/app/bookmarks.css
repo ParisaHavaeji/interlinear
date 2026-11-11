@@ -247,15 +247,13 @@
   white-space: nowrap;
 }
 
-/* --- Swipe-to-delete rows (ui/SwipeRow.tsx) -------------------------------------- */
+/* --- Bookmark rows at rest (the motion is ui/swipe.css) ---------------------------- */
 
-.swipe {
-  position: relative;
-  overflow: hidden;
+.bm-list .swipe {
   background: light-dark(var(--bg), var(--bg-elev));
 }
 
-.swipe + .swipe::before {
+.bm-list .swipe + .swipe::before {
   content: '';
   position: absolute;
   left: 16px;
@@ -265,63 +263,13 @@
   z-index: 1;
 }
 
-.swipe-content {
-  position: relative;
+.bm-list .swipe-content {
   padding: 11px 16px 12px;
   background: light-dark(var(--bg), var(--bg-elev));
   cursor: pointer;
-  touch-action: pan-y;
-  user-select: none;
-  -webkit-user-select: none;
-  transition: transform 220ms cubic-bezier(0.2, 0.9, 0.3, 1);
-  outline-offset: -2px;
 }
 
-.swipe[data-dragging] .swipe-content {
-  transition: none;
-}
-
-.swipe-content:focus-visible {
-  outline: 2px solid var(--accent);
-}
-
-.swipe:not([data-open]):not([data-dragging]) .swipe-content:active {
+.bm-list .swipe:not([data-open]):not([data-dragging]) .swipe-content:active {
   background: light-dark(var(--bg-elev), #2c2c2e);
 }
 
-.swipe-actions {
-  position: absolute;
-  inset: 0 0 0 auto;
-  display: flex;
-  justify-content: flex-end;
-}
-
-.swipe-delete {
-  border: 0;
-  background: #ff3b30;
-  color: #fff;
-  font: 500 17px var(--font-ui);
-  padding: 0 4px;
-  cursor: pointer;
-  text-align: center;
-  transition: width 220ms cubic-bezier(0.2, 0.9, 0.3, 1);
-}
-
-.swipe[data-dragging] .swipe-delete {
-  transition: none;
-}
-
-.swipe-delete:active {
-  filter: brightness(0.85);
-}
-
-.swipe--deleting {
-  animation: swipe-collapse 220ms ease-in 160ms both;
-}
-
-@keyframes swipe-collapse {
-  to {
-    max-height: 0;
-    opacity: 0;
-  }
-}

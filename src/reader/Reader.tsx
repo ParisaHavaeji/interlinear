@@ -55,13 +55,21 @@
  * while the Reader is open. A change that reflows the page (font, size, spacing) keeps the
  * place being read: the windowed body notes which paragraph was at the top of the viewport, and
  * how far into it, before it rebuilds its height map, and scrolls back there afterwards.
+ *
+ * The place being read is saved (step 29, `reader/progress.ts`): the windowed body reports the
+ * paragraph at the top of the viewport and how far into it the viewport starts, and the Reader
+ * writes the book's `progress` row (chapter, paragraph, share, and the share of the whole book
+ * read so far) half a second after the last scroll and at once when the page is hidden or left.
+ * Opened without a chapter in the route (`#/read/<bookId>`, how the Library opens a book), or
+ * at the chapter where it was left, the book scrolls back to that place through the same path
+ * as a bookmark jump before anything is saved. The Library's "Reading Now" card reads that row.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ChapterMeta } from '../align/pipeline.ts'
 import type { Lang } from '../import/types.ts'
 import { getParagraphs } from '../store/books.ts'
-import { db, type Book, type BookmarkRow, type ParagraphRow } from '../store/db.ts'
+import { db, type Book, type BookmarkRow, type ParagraphRow, type ProgressRow } from '../store/db.ts'
 import { applyRepair, BlockIndex, describeBead, type RepairOp } from '../align/repair.ts'
 import { locateBookmark } from '../bookmarks/locate.ts'
 import { findSentenceBookmark, findWordBookmark, sentenceBookmark, wordBookmark } from '../bookmarks/model.ts'
@@ -70,12 +78,14 @@ import { useDictState } from '../dict/installer.ts'
 import type { LookupResult } from '../dict/lookup.ts'
 import { dictionary } from '../dict/shards.ts'
 import { useLiveQuery } from '../store/hooks.ts'
+import { getProgress, saveProgress } from '../store/progress.ts'
 import { APPEARANCE_KEY, ARTICLE_COLOURS_KEY, setSetting, useSetting } from '../store/settings.ts'
 import { BottomCard } from '../ui/BottomCard.tsx'
 import { type Appearance, appearanceStyle, metricsKey, sanitizeAppearance, themeAttribute } from './appearance.ts'
 import { AppearanceMenu } from './AppearanceMenu.tsx'
 import { BeadIndex, revealDelta, sentenceCard, stepSentence } from './card.ts'
 import { ChaptersSheet } from './ChaptersSheet.tsx'
+import { bookFraction, samePlace, type ReadingPlace } from './progress.ts'
 import { ReaderBar, ReaderFooter, useChrome } from './ReaderChrome.tsx'
 import { RepairCardBody, RepairCardHeader } from './RepairCard.tsx'
 import { SentenceCardBody, SentenceCardHeader } from './SentenceCard.tsx'
@@ -87,8 +97,8 @@ import './reader.css'
 
 interface Props {
   bookId: string
-  /** 0-based chapter position; clamped to the book. */
-  chapter: number
+  /** 0-based chapter position, clamped to the book; null opens the chapter the book was last read at (step 29). */
+  chapter: number | null
   /** Id of a bookmark to open at (step 26); the chapter shown is the bookmark's when they differ. */
   at?: string
   onBack: () => void
@@ -136,6 +146,8 @@ const NO_BOOKMARKS: readonly BookmarkRow[] = []
 const LONG_PRESS_MS = 500
 /** A pointer that moves further than this before then is a scroll, not a press. */
 const LONG_PRESS_SLOP = 10
+/** The reading place is saved this long after the last scroll (step 29). */
+const SAVE_DELAY_MS = 500
 
 export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, onArrive }: Props) {
   const data = useLiveQuery<Loaded | null>(async () => {
@@ -178,6 +190,32 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   const bookmarkRows = useLiveQuery(() => listBookmarks(bookId), [bookId])
   const bookmarks = bookmarkRows ?? NO_BOOKMARKS
 
+  // Where the book was last read (step 29), read once when the Reader opens: the chapter to show
+  // when the route names none, and the place within it to scroll back to. Undefined while
+  // loading, null for a book never opened before.
+  const [resume, setResume] = useState<ProgressRow | null | undefined>(undefined)
+  /** The place has been scrolled back to (or there was none) for this opening. */
+  const [restored, setRestored] = useState(false)
+  const savedPlace = useRef<ReadingPlace | null>(null)
+  useEffect(() => {
+    let live = true
+    setResume(undefined)
+    setRestored(false)
+    savedPlace.current = null
+    getProgress(bookId).then(
+      (row) => {
+        if (live) setResume(row ?? null)
+      },
+      (err: unknown) => {
+        console.error('could not read the reading progress', err)
+        if (live) setResume(null)
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [bookId])
+
   const chapters = useMemo(() => (data == null ? null : chaptersFor(data)), [data])
 
   // The bookmark the route asks to open at (step 26), placed in the text as it is now. Null
@@ -197,16 +235,24 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
 
   // A bookmark that is not there to jump to leaves the route pointing at the chapter alone.
   useEffect(() => {
-    if (at !== undefined && jump === null && data != null && bookmarkRows !== undefined) onArrive(Math.min(Math.max(0, chapter), (chapters?.length ?? 1) - 1))
+    if (at !== undefined && jump === null && data != null && bookmarkRows !== undefined) onArrive(Math.min(Math.max(0, chapter ?? 0), (chapters?.length ?? 1) - 1))
   }, [at, jump, data, bookmarkRows])
 
-  const idx = chapters === null ? 0 : jump !== null ? jump.chapter : Math.min(Math.max(0, chapter), chapters.length - 1)
+  const idx = chapters === null ? 0 : jump !== null ? jump.chapter : Math.min(Math.max(0, chapter ?? resume?.chapter ?? 0), chapters.length - 1)
   const current = chapters?.[idx]
 
+  // The place to scroll back to (step 29): the stored one, when the book opens where it was
+  // last read or at that very chapter, and not at a bookmark. Once per opening.
+  const restore = useMemo(() => {
+    if (restored || at !== undefined || resume == null || chapters === null) return null
+    if ((chapter !== null && chapter !== resume.chapter) || resume.chapter !== idx) return null
+    return { key: `resume/${bookId}`, para: resume.para, fraction: resume.fraction }
+  }, [restored, at, resume, chapters, chapter, idx, bookId])
+
   // A new chapter starts at its top. Before paint, so the old scroll position never shows. A
-  // chapter opened at a bookmark is scrolled by the body instead.
+  // chapter opened at a bookmark, or where the book was last read, is scrolled by the body.
   useLayoutEffect(() => {
-    if (jump === null) window.scrollTo(0, 0)
+    if (jump === null && restore === null) window.scrollTo(0, 0)
   }, [bookId, idx])
 
   const pageRef = useRef<HTMLDivElement>(null)
@@ -261,16 +307,59 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     setWord(null)
   }, [bookId, idx])
 
-  // The page has scrolled to the bookmark (step 26): open the card on its sentence or word.
+  // The page has scrolled to the bookmark (step 26): open the card on its sentence or word. Or
+  // back to the place the book was last read (step 29): saving may begin.
   const arrive = (found: boolean) => {
-    if (jump === null) return
-    if (found) {
-      setActive(jump.sentence)
-      setRepairing(false)
-      setWord(jump.word === undefined ? null : { sentence: jump.sentence, offset: jump.word.offset, token: jump.word.token })
-    }
-    onArrive(jump.chapter)
+    if (jump !== null) {
+      if (found) {
+        setActive(jump.sentence)
+        setRepairing(false)
+        setWord(jump.word === undefined ? null : { sentence: jump.sentence, offset: jump.word.offset, token: jump.word.token })
+      }
+      onArrive(jump.chapter)
+    } else if (restore !== null) setRestored(true)
   }
+
+  // Saving the place (step 29): the body reports the paragraph at the top of the viewport after
+  // every scroll and render; the row is written SAVE_DELAY_MS after the last change, and at once
+  // when the page is hidden or the Reader leaves. Nothing is saved while a jump or a restore is
+  // pending, since the page is not where the reader is yet.
+  const lengths = useMemo(() => data?.paragraphs.map((p) => p.text.length) ?? [], [data])
+  const pendingRow = useRef<ProgressRow | null>(null)
+  const saveTimer = useRef(0)
+  const flushProgress = () => {
+    if (saveTimer.current !== 0) {
+      clearTimeout(saveTimer.current)
+      saveTimer.current = 0
+    }
+    const row = pendingRow.current
+    if (row === null) return
+    pendingRow.current = null
+    saveProgress({ ...row, updated: Date.now() }).catch((err: unknown) => console.error('could not save the reading progress', err))
+  }
+  const onPosition = (pos: ViewportPlace) => {
+    if (data == null || chapters === null || current === undefined || jump !== null || restore !== null) return
+    const place: ReadingPlace = { chapter: idx, para: pos.para, fraction: pos.fraction }
+    if (samePlace(place, savedPlace.current)) return
+    savedPlace.current = place
+    // With the chapter's end on screen the whole chapter counts as read.
+    const read = bookFraction(chapters, lengths, pos.end ? { chapter: idx, para: current.paraCount, fraction: 0 } : place)
+    pendingRow.current = { bookId, chapter: idx, para: pos.para, fraction: pos.fraction, read, updated: 0 }
+    if (saveTimer.current !== 0) clearTimeout(saveTimer.current)
+    saveTimer.current = window.setTimeout(flushProgress, SAVE_DELAY_MS)
+  }
+  useEffect(() => {
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') flushProgress()
+    }
+    window.addEventListener('pagehide', flushProgress)
+    document.addEventListener('visibilitychange', onHidden)
+    return () => {
+      window.removeEventListener('pagehide', flushProgress)
+      document.removeEventListener('visibilitychange', onHidden)
+      flushProgress()
+    }
+  }, [])
   useEffect(() => {
     if (active !== null && data != null && !data.text.has(active)) setActive(null)
   }, [data, active])
@@ -492,7 +581,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     }
   }
 
-  if (data === undefined) {
+  if (data === undefined || resume === undefined) {
     return (
       <div class="reader" style={pageStyle}>
         <ReaderBar title="" onBack={onBack} />
@@ -545,8 +634,15 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
           uncertain={uncertain}
           word={word}
           metrics={metricsKey(appearance)}
-          jump={jump === null ? null : { key: jump.key, para: jump.para, sentence: jump.sentence }}
+          target={
+            jump !== null
+              ? { key: jump.key, para: jump.para, sentence: jump.sentence, fraction: 0 }
+              : restore !== null
+                ? { key: restore.key, para: restore.para, sentence: null, fraction: restore.fraction }
+                : null
+          }
           onArrive={arrive}
+          onPosition={onPosition}
         />
         <nav class="chapter-nav" aria-label="Chapters">
           <button type="button" disabled={idx === 0} onClick={() => onChapter(idx - 1)}>
@@ -688,10 +784,24 @@ interface BodyProps {
   word: WordRef | null
   /** Names the font, size and spacing in force (step 28); a change means every height is stale. */
   metrics: string
-  /** A sentence to scroll to once (step 26): its paragraph's position in the chapter and its id. */
-  jump: { key: string; para: number; sentence: number } | null
-  /** The jump is over: the sentence is in view (`found`), or it is not in that paragraph. */
+  /**
+   * A place to scroll to once: a bookmark's sentence (step 26), placed under the top bar, in
+   * the paragraph at `para` (its position in the chapter); or, with no sentence, the place the
+   * book was last read (step 29), the viewport's top edge `fraction` of the way into that
+   * paragraph. `key` tells one target from the next.
+   */
+  target: { key: string; para: number; sentence: number | null; fraction: number } | null
+  /** The target is reached (`found`), or it is not there to reach. */
   onArrive: (found: boolean) => void
+  /** Where the viewport is, after every scroll and render (step 29). */
+  onPosition: (place: ViewportPlace) => void
+}
+
+/** The paragraph at the top of the viewport (by position in the chapter), how far into it the viewport starts, and whether the chapter's end is on screen. */
+export interface ViewportPlace {
+  para: number
+  fraction: number
+  end: boolean
 }
 
 /** Share of the viewport, under the top bar, left above a sentence jumped to. */
@@ -699,7 +809,7 @@ const JUMP_INSET = 0.15
 /** A jump that has not found its sentence after this many renders gives up. */
 const JUMP_ATTEMPTS = 6
 
-function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, metrics, jump, onArrive }: BodyProps) {
+function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, metrics, target, onArrive, onPosition }: BodyProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const topRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<HeightMap | null>(null)
@@ -712,15 +822,26 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, metric
   const jumpRef = useRef<{ key: string; attempts: number } | null>(null)
   const arriveRef = useRef(onArrive)
   arriveRef.current = onArrive
+  const positionRef = useRef(onPosition)
+  positionRef.current = onPosition
 
-  /** Recompute the window from the current scroll position. */
+  /** Recompute the window from the current scroll position, and report where the viewport is. */
   const update = () => {
     const list = listRef.current
     const map = mapRef.current
     if (list === null || map === null) return
     const viewport = window.innerHeight
-    const next = rangeFor(map, -list.getBoundingClientRect().top, viewport, viewport * OVERSCAN_SCREENS)
+    const rect = list.getBoundingClientRect()
+    const y = -rect.top
+    const next = rangeFor(map, y, viewport, viewport * OVERSCAN_SCREENS)
     setRange((prev) => (sameRange(prev, next) ? prev : next))
+    if (map.length > 0) {
+      // Above the list (the heading is still on screen) counts as the top of the chapter.
+      const para = y < 0 ? 0 : map.indexAt(y)
+      const height = map.heightOf(para)
+      const fraction = y < 0 || height <= 0 ? 0 : Math.min(1, Math.max(0, (y - map.offsetOf(para)) / height))
+      positionRef.current({ para, fraction, end: rect.bottom <= viewport + 1 })
+    }
   }
 
   // After every render: (re)build the height map if the width or the type changed, measure
@@ -770,36 +891,52 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, metric
     update()
   })
 
-  // Scroll to the sentence of a jump (step 26). After the layout effects, so the Reader's
-  // scroll-to-top on a chapter change has already run. The sentence's paragraph may not be in
-  // the window yet: then the page is scrolled to where the height map puts the paragraph, which
-  // renders it, and the next render finds the sentence and places it under the top bar.
+  // Scroll to the target: the sentence of a bookmark jump (step 26) or the place the book was
+  // last read (step 29). After the layout effects, so the Reader's scroll-to-top on a chapter
+  // change has already run. The paragraph may not be in the window yet: then the page is
+  // scrolled to where the height map puts it, which renders it, and the next render finds the
+  // sentence and places it under the top bar, or finds the paragraph measured and puts the
+  // viewport's top edge the stored way into it.
   useEffect(() => {
     const list = listRef.current
     const map = mapRef.current
-    if (jump === null || list === null || map === null) return
-    const state = jumpRef.current?.key === jump.key ? jumpRef.current : { key: jump.key, attempts: 0 }
+    if (target === null || list === null || map === null) return
+    const state = jumpRef.current?.key === target.key ? jumpRef.current : { key: target.key, attempts: 0 }
     if (state.attempts < 0) return
     jumpRef.current = state
     const done = (found: boolean) => {
       state.attempts = -1
       arriveRef.current(found)
     }
-    const sent = list.querySelector(`.sent[data-sentence="${jump.sentence}"]`)
-    if (sent !== null) {
-      const rect = sent.getBoundingClientRect()
-      const bar = document.querySelector('.reader-bar')?.getBoundingClientRect().bottom ?? 0
-      window.scrollBy(0, Math.round(rect.top - Math.max(0, bar) - window.innerHeight * JUMP_INSET))
+    const listTop = () => list.getBoundingClientRect().top + window.scrollY
+    const paraRendered = list.querySelector(`.para[data-idx="${target.para}"]`) !== null
+    if (target.sentence !== null) {
+      const sent = list.querySelector(`.sent[data-sentence="${target.sentence}"]`)
+      if (sent !== null) {
+        const rect = sent.getBoundingClientRect()
+        const bar = document.querySelector('.reader-bar')?.getBoundingClientRect().bottom ?? 0
+        window.scrollBy(0, Math.round(rect.top - Math.max(0, bar) - window.innerHeight * JUMP_INSET))
+        done(true)
+        return
+      }
+    } else if (target.para === 0 && target.fraction === 0) {
+      // The top of the chapter, heading included.
+      window.scrollTo(0, 0)
+      done(true)
+      return
+    } else if (paraRendered) {
+      window.scrollTo(0, Math.max(0, Math.round(listTop() + map.offsetOf(target.para) + target.fraction * map.heightOf(target.para))))
       done(true)
       return
     }
-    if (jump.para < 0 || jump.para >= paragraphs.length || list.querySelector(`.para[data-idx="${jump.para}"]`) !== null || state.attempts >= JUMP_ATTEMPTS) {
+    if (target.para < 0 || target.para >= paragraphs.length || (target.sentence !== null && paraRendered) || state.attempts >= JUMP_ATTEMPTS) {
       done(false)
       return
     }
     state.attempts++
-    const top = list.getBoundingClientRect().top + window.scrollY + map.offsetOf(jump.para)
-    window.scrollTo(0, Math.max(0, top - window.innerHeight * JUMP_INSET))
+    const top = listTop() + map.offsetOf(target.para)
+    const offset = target.sentence === null ? target.fraction * map.heightOf(target.para) : -window.innerHeight * JUMP_INSET
+    window.scrollTo(0, Math.max(0, top + offset))
     update()
   })
 

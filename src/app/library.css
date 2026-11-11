@@ -1,4 +1,4 @@
-/* Library screen, covers, bottom sheet and the Add Book form. Globals live in index.css. */
+/* Library screen (plan.md step 29): Reading Now, the shelf grid, covers, bottom sheet and the Add Book form. Globals live in index.css. */
 
 .top-bar--library {
   display: flex;
@@ -36,9 +36,8 @@ a.icon-btn {
 }
 
 .content--shelf {
-  align-items: flex-start;
-  justify-content: stretch;
-  padding-top: 8px;
+  display: block;
+  padding-top: 0;
 }
 
 .btn-inline {
@@ -56,6 +55,7 @@ a.icon-btn {
   grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
   column-gap: 20px;
   row-gap: 28px;
+  align-items: start;
 }
 
 @media (min-width: 600px) {
@@ -63,10 +63,6 @@ a.icon-btn {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     column-gap: 28px;
   }
-}
-
-.shelf-item {
-  min-width: 0;
 }
 
 .shelf-title {
@@ -465,9 +461,155 @@ a.icon-btn {
   color: inherit;
   text-decoration: none;
   -webkit-touch-callout: none;
+  -webkit-user-drag: none;
 }
 
 .shelf-link:active .cover {
   transform: scale(0.97);
   transition: transform 120ms ease-out;
+}
+
+/* --- Reading Now and the section titles (plan.md step 29) ------------------------- */
+
+.section-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.35px;
+  margin: 18px 0 12px;
+}
+
+.now-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--bg-elev);
+  color: inherit;
+  text-decoration: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
+.now-card:active {
+  opacity: 0.75;
+}
+
+/* The cover's percentage padding resolves against its containing block, so it gets a box of its own. */
+.now-cover {
+  width: 88px;
+  flex: none;
+}
+
+.now-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.now-title {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.now-author,
+.now-chapter {
+  font-size: 15px;
+  color: var(--fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.now-author {
+  margin-top: 2px;
+}
+
+.now-chapter {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.now-progress {
+  margin-top: 10px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--separator);
+  overflow: hidden;
+}
+
+.now-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 300ms ease-out;
+}
+
+.now-percent {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.now-chevron {
+  flex: none;
+  color: var(--fg-2);
+}
+
+/* --- Shelf tiles that swipe to delete (ui/SwipeRow.tsx) --------------------------- */
+
+/* The tile clips what slides out of it, so it reaches into the grid's gaps with negative
+   margins and pads the same amount back, which leaves room for the cover's shadow. */
+.shelf-item {
+  margin: -10px -12px;
+  border-radius: 10px;
+}
+
+.shelf-item .swipe-content {
+  padding: 10px 12px 6px;
+  background: var(--bg);
+}
+
+.shelf-item .swipe-delete {
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+
+.shelf-item.swipe--deleting {
+  animation: shelf-vanish 220ms ease-in 160ms both;
+}
+
+@keyframes shelf-vanish {
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+.shelf-note--progress {
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-destructive {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  padding: 14px;
+  font: 600 17px var(--font-ui);
+  color: #fff;
+  background: #ff3b30;
+  cursor: pointer;
+}
+
+.btn-destructive:active {
+  filter: brightness(0.85);
 }

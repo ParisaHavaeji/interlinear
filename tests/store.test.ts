@@ -83,7 +83,7 @@ describe('deleteBook', () => {
   it('removes the book and its rows, leaving other books alone', async () => {
     const a = await addBook({ title: 'A', author: '', de: DE, en: EN }, db)
     const b = await addBook({ title: 'B', author: '', de: DE, en: EN }, db)
-    await db.progress.put({ bookId: a.id, sentenceIdx: 3, scrollFraction: 0.5 })
+    await db.progress.put({ bookId: a.id, chapter: 1, para: 3, fraction: 0.5, read: 0.2, updated: Date.now() })
     await addBookmark(a.id, { type: 'sentence', payload: { sentences: [0], translation: [0], text: 'Als Gregor Samsa erwachte.', translationText: 'One morning Gregor Samsa woke.', chapter: 0, heading: 'A' } }, db)
 
     await deleteBook(a.id, db)

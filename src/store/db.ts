@@ -124,10 +124,22 @@ export type BookmarkRow = {
   created: number
 } & ({ type: 'sentence'; payload: SentenceBookmark } | { type: 'word'; payload: WordBookmark })
 
+/**
+ * Where a book was last read (step 29): the place the Reader restores when the book is opened
+ * again, and what the Library's "Reading Now" card shows. See `reader/progress.ts`.
+ */
 export interface ProgressRow {
   bookId: string
-  sentenceIdx: number
-  scrollFraction: number
+  /** 0-based chapter position. */
+  chapter: number
+  /** Position within the chapter of the paragraph at the top of the viewport. */
+  para: number
+  /** How far into that paragraph the viewport starts, 0–1. */
+  fraction: number
+  /** Share of the book's text before that place, 0–1. */
+  read: number
+  /** Unix ms of the last change; the newest row across the books is "Reading Now". */
+  updated: number
 }
 
 export interface SettingRow {

@@ -28,7 +28,8 @@ const toLibrary = () => {
 }
 
 /**
- * App shell: hash-routed between the Library (Phase 1), the Reader (Phase 3, `#/read/<id>`),
+ * App shell: hash-routed between the Library (Phase 1), the Reader (Phase 3, `#/read/<id>`,
+ * which opens the book where it was last read, or `#/read/<id>/<chapter>`),
  * Settings, the bookmarks screen (step 26, `#/bookmarks`, or one book's from its Reader) and,
  * in development, the alignment debug view. The install hint and status footer from Phase 0 show
  * on the Library only.
