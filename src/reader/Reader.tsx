@@ -24,6 +24,11 @@
  * missing match the neighbouring English sentences. The page scrolls just enough to keep the
  * highlighted sentence between the top bar and the card; sentences of uncertain beads carry a
  * dotted underline. The model behind all this is `reader/card.ts`.
+ *
+ * A long-press on a sentence (or a right-click, or "Fix alignment" on the sentence card) opens
+ * the card in repair mode (step 20, `RepairCard.tsx`): the bead can be shifted, merged, split or
+ * reset by hand, each change saved at once through `align/repair.ts`, which pins the bead and
+ * re-aligns the rest of its paragraph around it. The live query then redraws page and card.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
@@ -31,11 +36,13 @@ import type { ChapterMeta } from '../align/pipeline.ts'
 import type { Lang } from '../import/types.ts'
 import { getParagraphs } from '../store/books.ts'
 import { db, type Book, type ParagraphRow } from '../store/db.ts'
+import { applyRepair, BlockIndex, describeBead, type RepairOp } from '../align/repair.ts'
 import { useLiveQuery } from '../store/hooks.ts'
 import { BottomCard } from '../ui/BottomCard.tsx'
 import { BeadIndex, revealDelta, sentenceCard, stepSentence } from './card.ts'
 import { ChaptersSheet } from './ChaptersSheet.tsx'
 import { ReaderBar, ReaderFooter, useChrome } from './ReaderChrome.tsx'
+import { RepairCardBody, RepairCardHeader } from './RepairCard.tsx'
 import { SentenceCardBody, SentenceCardHeader } from './SentenceCard.tsx'
 import { runsOf, tokenize, type SentenceSpan } from './tokenize.ts'
 import { estimateHeight, HeightMap, rangeFor, sameRange, type RenderRange, type TextMetrics } from './virtual.ts'
@@ -63,9 +70,15 @@ interface Loaded {
   /** Text of every sentence of the translation by book-wide index. */
   otherText: Map<number, string>
   beads: BeadIndex
+  /** The paragraph blocks the repair of step 20 works within. */
+  blocks: BlockIndex
 }
 
 const EMPTY = new Set<number>()
+/** A pointer held still on a sentence this long opens the repair card. */
+const LONG_PRESS_MS = 500
+/** A pointer that moves further than this before then is a scroll, not a press. */
+const LONG_PRESS_SLOP = 10
 
 export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
   const data = useLiveQuery<Loaded | null>(async () => {
@@ -88,7 +101,17 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
       text.set(s.idx, s.text)
     }
     const otherText = new Map(otherRows.map((s) => [s.idx, s.text]))
-    return { book, lang, otherLang, paragraphs, sentences, text, otherText, beads: new BeadIndex(beadRows) }
+    return {
+      book,
+      lang,
+      otherLang,
+      paragraphs,
+      sentences,
+      text,
+      otherText,
+      beads: new BeadIndex(beadRows),
+      blocks: new BlockIndex(beadRows, rows, otherRows),
+    }
   }, [bookId])
 
   // A new chapter starts at its top. Before paint, so the old scroll position never shows.
@@ -102,17 +125,102 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
   /** The tapped sentence, by book-wide index; null while the card is closed. */
   const [active, setActive] = useState<number | null>(null)
   const [cardHeight, setCardHeight] = useState(0)
+  /** The card is in repair mode (step 20) for the active sentence. */
+  const [repairing, setRepairing] = useState(false)
+  const [repairBusy, setRepairBusy] = useState(false)
+  const [repairError, setRepairError] = useState<string | null>(null)
 
   // A chapter change closes the card; so does a re-alignment that dropped the sentence.
-  useEffect(() => setActive(null), [bookId, chapter])
+  useEffect(() => {
+    setActive(null)
+    setRepairing(false)
+  }, [bookId, chapter])
   useEffect(() => {
     if (active !== null && data != null && !data.text.has(active)) setActive(null)
   }, [data, active])
+  useEffect(() => {
+    if (active === null) setRepairing(false)
+  }, [active])
+
+  const openRepair = (idx: number) => {
+    setActive(idx)
+    setRepairing(true)
+    setRepairError(null)
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(10)
+  }
+
+  // Long press: a primary pointer held still on a sentence for LONG_PRESS_MS. The click that
+  // follows the release is swallowed so it does not re-select the sentence.
+  const press = useRef<{ id: number; x: number; y: number; timer: number } | null>(null)
+  const skipClick = useRef(false)
+  const endPress = () => {
+    if (press.current === null) return
+    clearTimeout(press.current.timer)
+    press.current = null
+  }
+  const onPointerDown = (e: PointerEvent) => {
+    if (!e.isPrimary || e.button !== 0) return
+    const sent = (e.target as Element | null)?.closest<HTMLElement>('.sent')
+    if (sent === undefined || sent === null) return
+    endPress()
+    const idx = Number(sent.dataset.sentence)
+    const timer = window.setTimeout(() => {
+      press.current = null
+      skipClick.current = true
+      openRepair(idx)
+    }, LONG_PRESS_MS)
+    press.current = { id: e.pointerId, x: e.clientX, y: e.clientY, timer }
+  }
+  const onPointerMove = (e: PointerEvent) => {
+    const p = press.current
+    if (p !== null && e.pointerId === p.id && Math.hypot(e.clientX - p.x, e.clientY - p.y) > LONG_PRESS_SLOP) endPress()
+  }
+  useEffect(() => {
+    window.addEventListener('scroll', endPress, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', endPress)
+      endPress()
+    }
+  }, [])
 
   const onPageClick = (e: MouseEvent) => {
+    if (skipClick.current) {
+      skipClick.current = false
+      return
+    }
     const sent = (e.target as Element | null)?.closest<HTMLElement>('.sent')
     if (sent === undefined || sent === null) return
     setActive(Number(sent.dataset.sentence))
+  }
+
+  // A right-click (and, on Android, the long-press the browser would turn into a context menu).
+  const onContextMenu = (e: MouseEvent) => {
+    const sent = (e.target as Element | null)?.closest<HTMLElement>('.sent')
+    if (sent === undefined || sent === null) return
+    e.preventDefault()
+    endPress()
+    openRepair(Number(sent.dataset.sentence))
+  }
+
+  const repairText = useMemo(
+    () => (data == null ? null : { de: (i: number) => data.text.get(i), en: (i: number) => data.otherText.get(i) }),
+    [data],
+  )
+  const repairBlock = repairing && data != null && active !== null ? data.blocks.blockOf(active) : null
+  const repairDescription = repairBlock === null || active === null ? null : describeBead(repairBlock, active)
+
+  const repair = async (op: RepairOp) => {
+    if (data == null || active === null || repairText === null || repairBusy) return
+    setRepairBusy(true)
+    setRepairError(null)
+    try {
+      await applyRepair({ book: data.book, blocks: data.blocks, text: repairText }, active, op)
+    } catch (err) {
+      console.error('repair failed', err)
+      setRepairError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRepairBusy(false)
+    }
   }
 
   const chapters = data == null ? null : chaptersFor(data)
@@ -208,7 +316,16 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
   return (
     <div class={chrome.hidden ? 'reader reader--chrome-hidden' : 'reader'} ref={pageRef}>
       <ReaderBar title={data.book.title} onBack={onBack} onContents={ready ? () => setContents(true) : undefined} />
-      <main class="reader-page" lang={data.lang} onClick={onPageClick}>
+      <main
+        class="reader-page"
+        lang={data.lang}
+        onClick={onPageClick}
+        onContextMenu={onContextMenu}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endPress}
+        onPointerCancel={endPress}
+      >
         <h2 class="chapter-heading">{heading}</h2>
         {!ready && <p class="reader-note">This book is still being prepared. Sentences become tappable once it is aligned.</p>}
         <ChapterBody
@@ -239,12 +356,34 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
           if (target === null || target.closest('.sent') === null) setActive(null)
         }}
         onHeightChange={setCardHeight}
-        label="Sentence"
+        label={repairing ? 'Fix alignment' : 'Sentence'}
         header={
-          <SentenceCardHeader heading={heading} onPrev={canStep(-1) ? () => step(-1) : undefined} onNext={canStep(1) ? () => step(1) : undefined} />
+          repairing ? (
+            <RepairCardHeader onDone={() => setRepairing(false)} />
+          ) : (
+            <SentenceCardHeader heading={heading} onPrev={canStep(-1) ? () => step(-1) : undefined} onNext={canStep(1) ? () => step(1) : undefined} />
+          )
         }
       >
-        {card !== null && <SentenceCardBody card={card} lang={data.otherLang} text={(i) => data.otherText.get(i)} onCopy={copy} />}
+        {card !== null && repairing && repairText !== null && (
+          <RepairCardBody
+            description={repairDescription}
+            langs={[data.lang, data.otherLang]}
+            text={repairText}
+            onRepair={repair}
+            busy={repairBusy}
+            error={repairError}
+          />
+        )}
+        {card !== null && !repairing && (
+          <SentenceCardBody
+            card={card}
+            lang={data.otherLang}
+            text={(i) => data.otherText.get(i)}
+            onCopy={copy}
+            onFix={card.status === 'unaligned' || active === null ? undefined : () => openRepair(active)}
+          />
+        )}
       </BottomCard>
     </div>
   )

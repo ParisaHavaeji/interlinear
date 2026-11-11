@@ -2,8 +2,9 @@
  * The bottom card's content in sentence mode (plan.md step 19, §1.5): the chapter name between
  * Previous / Next arrows in the fixed header, then the English sentence(s) of the tapped bead in
  * the reading font, a note with the neighbouring English sentences when the match is uncertain
- * or missing, and the actions (Bookmark, which waits for step 25; Copy). The Reader owns the
- * highlight and the stepping; this component only draws what `reader/card.ts` worked out.
+ * or missing, and the actions (Bookmark, which waits for step 25; Copy; Fix alignment, which
+ * switches the card to the repair mode of step 20). The Reader owns the highlight and the
+ * stepping; this component only draws what `reader/card.ts` worked out.
  */
 
 import { useEffect, useState } from 'preact/hooks'
@@ -23,6 +24,8 @@ interface Props {
   onNext?: () => void
   /** Copy the sentence and its translation; resolves once on the clipboard. */
   onCopy: () => Promise<void>
+  /** Open the repair card for this sentence (step 20); absent when there is nothing to repair. */
+  onFix?: () => void
 }
 
 export function SentenceCardHeader({ heading, onPrev, onNext }: Pick<Props, 'heading' | 'onPrev' | 'onNext'>) {
@@ -43,7 +46,7 @@ export function SentenceCardHeader({ heading, onPrev, onNext }: Pick<Props, 'hea
   )
 }
 
-export function SentenceCardBody({ card, lang, text, onCopy }: Pick<Props, 'card' | 'lang' | 'text' | 'onCopy'>) {
+export function SentenceCardBody({ card, lang, text, onCopy, onFix }: Pick<Props, 'card' | 'lang' | 'text' | 'onCopy' | 'onFix'>) {
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -97,6 +100,13 @@ export function SentenceCardBody({ card, lang, text, onCopy }: Pick<Props, 'card
             <path d="M16 8V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="2" />
           </svg>
           {copied ? 'Copied' : 'Copy'}
+        </button>
+        <button type="button" class="card-action" onClick={onFix} disabled={onFix === undefined} title="Fix how this sentence is matched with the translation">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M4 7h10M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            <path d="m17 5 2 2-2 2M17 15l2 2-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          Fix alignment
         </button>
       </div>
     </>

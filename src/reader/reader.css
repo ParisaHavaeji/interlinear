@@ -179,7 +179,9 @@
 
 /* Sentences (plan.md step 19): the bead on the card gets Books' soft yellow highlight, whole
    across line breaks thanks to the clone; sentences of uncertain beads a faint dotted underline.
-   Word spans carry no styling yet (step 24 highlights the tapped word). */
+   Word spans carry no styling yet (step 24 highlights the tapped word). A long-press on a
+   sentence opens the repair card (step 20), so the browser's own long-press behaviour, text
+   selection and the iOS callout, is turned off on sentences; Copy on the card covers copying. */
 .sent {
   --highlight: rgba(255, 214, 10, 0.42);
   border-radius: 4px;
@@ -187,6 +189,9 @@
   box-decoration-break: clone;
   cursor: pointer;
   transition: background-color 160ms ease-out;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 @media (prefers-color-scheme: dark) {

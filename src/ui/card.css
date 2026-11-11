@@ -174,3 +174,94 @@
   opacity: 0.35;
   cursor: default;
 }
+
+/* --- Repair mode (plan.md step 20) --------------------------------------- */
+
+/* Title with a Done button on the right, where the sentence card has its arrows. */
+.card-nav--repair {
+  grid-template-columns: 56px minmax(0, 1fr) 56px;
+}
+
+.card-nav--repair .card-title {
+  grid-column: 2;
+}
+
+.card-done {
+  grid-column: 3;
+  justify-self: end;
+  border: 0;
+  background: none;
+  padding: 6px 0;
+  font: 600 15px var(--font-ui);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.card-done:active {
+  opacity: 0.5;
+}
+
+/* The bead's German side, smaller than the translation it is being matched to. */
+.repair-original {
+  font: 15px/1.4 var(--font-serif);
+  color: var(--fg-2);
+  margin: 0 0 10px;
+  padding-left: 10px;
+  border-left: 2px solid var(--separator);
+  overflow-wrap: break-word;
+}
+
+/* The English sentences around the match: the match in full colour, neighbours greyed. */
+.repair-rows {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  font: 17px/1.45 var(--font-serif);
+}
+
+.repair-row {
+  padding: 6px 10px;
+  border-radius: 8px;
+  overflow-wrap: break-word;
+}
+
+.repair-row--context {
+  color: var(--fg-2);
+  opacity: 0.75;
+  font-size: 15px;
+}
+
+.repair-row--bead {
+  background: rgba(255, 214, 10, 0.28);
+}
+
+@media (prefers-color-scheme: dark) {
+  .repair-row--bead {
+    background: rgba(255, 204, 0, 0.22);
+  }
+}
+
+.repair-row--empty {
+  font: italic 15px/1.45 var(--font-ui);
+  color: var(--fg-2);
+}
+
+.card-actions {
+  flex-wrap: wrap;
+}
+
+.card-actions--repair {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.card-action--repair {
+  justify-content: center;
+  padding: 8px 6px;
+  white-space: nowrap;
+}
+
+.card-note--error {
+  color: #ff3b30;
+}

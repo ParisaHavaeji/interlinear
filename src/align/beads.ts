@@ -71,6 +71,12 @@ export interface AlignOptions {
   deletionScale?: number
   /** Feature weights; defaults to {@link DEFAULT_WEIGHTS}. */
   weights?: FeatureWeights
+  /**
+   * The most sentences a bead may have on either side (1–3; the full move table by default).
+   * With 1 only 1-1, 1-0 and 0-1 beads are allowed: how a repair (step 20) splits a bead into
+   * single sentences and lets the scores decide which English sentence goes with which.
+   */
+  maxSize?: number
 }
 
 /**
@@ -88,8 +94,6 @@ export const MOVES: readonly (readonly [number, number, number])[] = [
   [1, 3, 0.004],
   [3, 1, 0.004],
 ]
-const MOVE_COSTS = MOVES.map(([, , prior]) => -Math.log(prior))
-const K = MOVES.length
 
 /** Character-length ratio of the English side to the German side, clamped to [0.5, 2]. */
 export function estimateSentenceRatio(de: readonly PreparedSentence[], en: readonly PreparedSentence[]): number {
@@ -121,6 +125,10 @@ export function alignSentences(
   const ratio = options.ratio ?? estimateSentenceRatio(de, en)
   const weights = options.weights ?? DEFAULT_WEIGHTS
   const featureOptions = { ratio, variance: options.variance, deletionScale: options.deletionScale ?? SENTENCE_DELETION_SCALE }
+  const maxSize = options.maxSize ?? Infinity
+  const moves = MOVES.filter(([a, b]) => a <= maxSize && b <= maxSize)
+  const moveCosts = moves.map(([, , prior]) => -Math.log(prior))
+  const K = moves.length
 
   // edge[(i * width + j) * K + k]: cost of the bead that ends at cell (i, j) by move k,
   // Infinity when the move does not fit before the cell.
@@ -130,10 +138,10 @@ export function alignSentences(
   for (let i = 0; i <= n; i++) {
     for (let j = 0; j <= m; j++) {
       for (let k = 0; k < K; k++) {
-        const [a, b] = MOVES[k]
+        const [a, b] = moves[k]
         if (i < a || j < b) continue
         const f = beadFeatures(de.slice(i - a, i), en.slice(j - b, j), featureOptions)
-        edge[(i * width + j) * K + k] = combinedCost(f, weights, (a + b) / 2) + MOVE_COSTS[k]
+        edge[(i * width + j) * K + k] = combinedCost(f, weights, (a + b) / 2) + moveCosts[k]
       }
     }
   }
@@ -147,7 +155,7 @@ export function alignSentences(
       if (i === 0 && j === 0) continue
       const c = i * width + j
       for (let k = 0; k < K; k++) {
-        const [a, b] = MOVES[k]
+        const [a, b] = moves[k]
         if (i < a || j < b) continue
         const total = fwd[(i - a) * width + (j - b)] + edge[c * K + k]
         if (total < fwd[c]) {
@@ -166,7 +174,7 @@ export function alignSentences(
       if (i === n && j === m) continue
       const c = i * width + j
       for (let k = 0; k < K; k++) {
-        const [a, b] = MOVES[k]
+        const [a, b] = moves[k]
         if (i + a > n || j + b > m) continue
         const head = (i + a) * width + (j + b)
         const total = edge[head * K + k] + bwd[head]
@@ -179,7 +187,7 @@ export function alignSentences(
 
   /** Cheapest complete path through the bead that ends at (i2, j2) by move k2. */
   const through = (i2: number, j2: number, k2: number): number => {
-    const [a2, b2] = MOVES[k2]
+    const [a2, b2] = moves[k2]
     const head = i2 * width + j2
     return fwd[(i2 - a2) * width + (j2 - b2)] + edge[head * K + k2] + bwd[head]
   }
@@ -190,12 +198,12 @@ export function alignSentences(
    * English sentence (heads j2 in (j−b, j+1]) with it.
    */
   const secondBest = (i: number, j: number, k: number): number => {
-    const [a, b] = MOVES[k]
+    const [a, b] = moves[k]
     let second = Infinity
     const consider = (i2: number, j2: number): void => {
       for (let k2 = 0; k2 < K; k2++) {
         if (i2 === i && j2 === j && k2 === k) continue
-        const [a2, b2] = MOVES[k2]
+        const [a2, b2] = moves[k2]
         if (i2 < a2 || j2 < b2) continue
         const sharesDe = a > 0 && a2 > 0 && i2 - a2 < i && i2 > i - a
         const sharesEn = b > 0 && b2 > 0 && j2 - b2 < j && j2 > j - b
@@ -215,7 +223,7 @@ export function alignSentences(
   while (i > 0 || j > 0) {
     const c = i * width + j
     const k = back[c]
-    const [a, b] = MOVES[k]
+    const [a, b] = moves[k]
     const margin = Math.max(0, secondBest(i, j, k) - best)
     beads.push({
       de: Array.from({ length: a }, (_, x) => i - a + x),
