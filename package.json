@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "icons": "node tools/make-icons.mjs",
     "typecheck": "tsc -b",
-    "fixtures": "node tools/fetch-fixtures.ts"
+    "fixtures": "node tools/fetch-fixtures.ts",
+    "dict": "node tools/build-dict/main.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.2",

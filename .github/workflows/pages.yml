@@ -25,6 +25,24 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      # The dictionary (plan.md step 21) is built here, never committed. The shards are cached
+      # by the hash of the tool, so a push that leaves the tool alone reuses them; the raw
+      # downloads (~120 MB) are cached too, so a tool change rebuilds from the same sources.
+      - name: Restore built dictionary
+        id: dict
+        uses: actions/cache@v4
+        with:
+          path: public/dict
+          key: dict-${{ hashFiles('tools/build-dict/**', 'src/dict/format.ts') }}
+      - name: Restore dictionary sources
+        if: steps.dict.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .dict-cache
+          key: dict-sources-${{ hashFiles('tools/build-dict/main.ts') }}
+      - name: Build dictionary
+        if: steps.dict.outputs.cache-hit != 'true'
+        run: npm run dict -- --cache .dict-cache
       - name: Build
         # Project sites live at https://<user>.github.io/<repo>/
         run: npm run build

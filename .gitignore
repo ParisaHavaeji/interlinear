@@ -29,3 +29,6 @@ public/dict/
 # Local test EPUBs (see plan.md §1.1). Kept out of the public repo for now;
 # remove this line if you decide to commit them.
 Input/
+
+# Downloaded dictionary sources (tools/build-dict --cache, used by CI)
+.dict-cache/
