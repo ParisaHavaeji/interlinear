@@ -17,7 +17,7 @@
   display: flex;
   flex-direction: column;
   padding-bottom: calc(var(--safe-bottom) + var(--card-overshoot));
-  background: var(--sheet-bg, rgba(246, 246, 248, 0.9));
+  background: var(--sheet-bg);
   -webkit-backdrop-filter: saturate(180%) blur(24px);
   backdrop-filter: saturate(180%) blur(24px);
   border-radius: 16px 16px 0 0;
@@ -26,12 +26,6 @@
   font: 15px/1.4 var(--font-ui);
   touch-action: none;
   will-change: transform;
-}
-
-@media (prefers-color-scheme: dark) {
-  .card {
-    --sheet-bg: rgba(28, 28, 30, 0.9);
-  }
 }
 
 .card[data-dragging] {
@@ -237,13 +231,7 @@
 }
 
 .repair-row--bead {
-  background: rgba(255, 214, 10, 0.28);
-}
-
-@media (prefers-color-scheme: dark) {
-  .repair-row--bead {
-    background: rgba(255, 204, 0, 0.22);
-  }
+  background: light-dark(rgba(255, 214, 10, 0.28), rgba(255, 204, 0, 0.22));
 }
 
 .repair-row--empty {
@@ -425,7 +413,7 @@
 }
 
 .word-mark {
-  background: var(--highlight, rgba(255, 214, 10, 0.42));
+  background: var(--highlight);
   color: var(--fg);
   border-radius: 3px;
   padding: 0 1px;

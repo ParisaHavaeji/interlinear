@@ -1,24 +1,31 @@
+/* Colours are written once as light-dark() pairs and follow `color-scheme`: the system's
+   setting by default, or the theme the Reader puts in `data-theme` on <html> (plan.md step 28,
+   `reader/appearance.ts`). Sepia and Gray replace the pairs with their own colours. */
 :root {
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
-  --font-serif: 'New York', 'Iowan Old Style', 'Palatino', 'Palatino Linotype', Georgia, serif;
+  --font-serif: ui-serif, 'New York', 'Iowan Old Style', 'Palatino', 'Palatino Linotype', Georgia, serif;
 
-  --bg: #ffffff;
-  --bg-elev: #f2f2f7;
-  --fg: #000000;
-  --fg-2: #6e6e73;
-  --separator: rgba(60, 60, 67, 0.29);
+  --bg: light-dark(#ffffff, #000000);
+  --bg-elev: light-dark(#f2f2f7, #1c1c1e);
+  --fg: light-dark(#000000, #ffffff);
+  --fg-2: light-dark(#6e6e73, #8e8e93);
+  --separator: light-dark(rgba(60, 60, 67, 0.29), rgba(84, 84, 88, 0.6));
   --accent: #ff9f0a;
+  /* Frosted surfaces: the bottom sheet, the bottom card, the aA menu. */
+  --sheet-bg: light-dark(rgba(246, 246, 248, 0.92), rgba(28, 28, 30, 0.92));
+  /* Books' soft yellow on the tapped sentence or word. */
+  --highlight: light-dark(rgba(255, 214, 10, 0.42), rgba(255, 204, 0, 0.3));
 
   /* The system colours the reader can give articles (plan.md step 24; keys in reader/word.ts). */
-  --c-blue: #007aff;
-  --c-red: #ff3b30;
-  --c-green: #34c759;
-  --c-orange: #ff9500;
-  --c-purple: #af52de;
-  --c-pink: #ff2d55;
-  --c-teal: #30b0c7;
-  --c-brown: #a2845e;
-  --c-grey: #8e8e93;
+  --c-blue: light-dark(#007aff, #0a84ff);
+  --c-red: light-dark(#ff3b30, #ff453a);
+  --c-green: light-dark(#34c759, #30d158);
+  --c-orange: light-dark(#ff9500, #ff9f0a);
+  --c-purple: light-dark(#af52de, #bf5af2);
+  --c-pink: light-dark(#ff2d55, #ff375f);
+  --c-teal: light-dark(#30b0c7, #40c8e0);
+  --c-brown: light-dark(#a2845e, #ac8e68);
+  --c-grey: light-dark(#8e8e93, #98989d);
 
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -35,24 +42,36 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #000000;
-    --bg-elev: #1c1c1e;
-    --fg: #ffffff;
-    --fg-2: #8e8e93;
-    --separator: rgba(84, 84, 88, 0.6);
+/* The reading themes (plan.md step 28, §1.8). White and Night pin the scheme; Sepia and Gray
+   bring their own colours, Books' values, and pick the scheme their contrast matches so the
+   light-dark() pairs elsewhere (highlight, swatches) agree with them. */
+:root[data-theme='white'] {
+  color-scheme: light;
+}
 
-    --c-blue: #0a84ff;
-    --c-red: #ff453a;
-    --c-green: #30d158;
-    --c-orange: #ff9f0a;
-    --c-purple: #bf5af2;
-    --c-pink: #ff375f;
-    --c-teal: #40c8e0;
-    --c-brown: #ac8e68;
-    --c-grey: #98989d;
-  }
+:root[data-theme='night'] {
+  color-scheme: dark;
+}
+
+:root[data-theme='sepia'] {
+  color-scheme: light;
+  --bg: #f8f1e3;
+  --bg-elev: #efe4cf;
+  --fg: #5b4636;
+  --fg-2: #8c7659;
+  --separator: rgba(91, 70, 54, 0.26);
+  --sheet-bg: rgba(244, 236, 222, 0.92);
+  --highlight: rgba(255, 196, 0, 0.36);
+}
+
+:root[data-theme='gray'] {
+  color-scheme: dark;
+  --bg: #4a4a4c;
+  --bg-elev: #5c5c5e;
+  --fg: #ededed;
+  --fg-2: #b8b8bc;
+  --separator: rgba(255, 255, 255, 0.22);
+  --sheet-bg: rgba(74, 74, 76, 0.94);
 }
 
 * {

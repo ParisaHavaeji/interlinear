@@ -27,7 +27,11 @@
 .content--settings {
   display: block;
   padding-top: 8px;
-  background: var(--bg-elev);
+  background: light-dark(var(--bg-elev), #000);
+}
+
+.content--settings .group {
+  background: light-dark(var(--bg), var(--bg-elev));
 }
 
 .group-title {
@@ -146,13 +150,3 @@
 .article-label--teal { color: var(--c-teal); }
 .article-label--brown { color: var(--c-brown); }
 .article-label--grey { color: var(--c-grey); }
-
-@media (prefers-color-scheme: dark) {
-  .content--settings {
-    background: #000;
-  }
-
-  .content--settings .group {
-    background: var(--bg-elev);
-  }
-}

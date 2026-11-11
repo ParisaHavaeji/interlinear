@@ -3,8 +3,9 @@
  * aA, search and bookmark, and a footer with the chapter's progress line and how many pages
  * are left. Both slide away as the reader scrolls down and come back on the way up
  * (`useChrome`, over the arithmetic in `chrome.ts`). The ribbon opens the book's bookmarks
- * (step 26); bookmarks themselves are made from the bottom card (step 25). The aA menu and
- * search are later steps (28); their buttons are in place but disabled until then.
+ * (step 26); bookmarks themselves are made from the bottom card (step 25). aA opens the
+ * appearance menu (step 28, `AppearanceMenu.tsx`). Search is a later step; its button is in
+ * place but disabled until then.
  */
 
 import type { RefObject } from 'preact'
@@ -61,9 +62,13 @@ interface BarProps {
   onContents?: () => void
   /** Opens the book's bookmarks (step 26); absent while the book is still loading. */
   onBookmarks?: () => void
+  /** Opens the aA menu (step 28). */
+  onAppearance?: () => void
+  /** The aA menu is open. */
+  appearanceOpen?: boolean
 }
 
-export function ReaderBar({ title, onBack, onContents, onBookmarks }: BarProps) {
+export function ReaderBar({ title, onBack, onContents, onBookmarks, onAppearance, appearanceOpen = false }: BarProps) {
   return (
     <header class="reader-bar">
       <div class="reader-bar-group">
@@ -83,7 +88,16 @@ export function ReaderBar({ title, onBack, onContents, onBookmarks }: BarProps) 
       </div>
       <div class="reader-bar-title">{title}</div>
       <div class="reader-bar-group reader-bar-group--end">
-        <button type="button" class="reader-btn reader-btn--aa" aria-label="Appearance" title="Appearance: coming soon" disabled>
+        <button
+          type="button"
+          class="reader-btn reader-btn--aa"
+          aria-label="Appearance"
+          title="Appearance"
+          aria-haspopup="dialog"
+          aria-expanded={appearanceOpen}
+          disabled={onAppearance === undefined}
+          onClick={onAppearance}
+        >
           aA
         </button>
         <button type="button" class="reader-btn" aria-label="Search" title="Search: coming soon" disabled>

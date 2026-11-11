@@ -112,7 +112,7 @@
   display: block;
   padding-top: 4px;
   padding-bottom: calc(var(--safe-bottom) + 32px);
-  background: var(--bg-elev);
+  background: light-dark(var(--bg-elev), #000);
 }
 
 .content--bookmarks .empty {
@@ -252,7 +252,7 @@
 .swipe {
   position: relative;
   overflow: hidden;
-  background: var(--bg);
+  background: light-dark(var(--bg), var(--bg-elev));
 }
 
 .swipe + .swipe::before {
@@ -268,7 +268,7 @@
 .swipe-content {
   position: relative;
   padding: 11px 16px 12px;
-  background: var(--bg);
+  background: light-dark(var(--bg), var(--bg-elev));
   cursor: pointer;
   touch-action: pan-y;
   user-select: none;
@@ -286,7 +286,7 @@
 }
 
 .swipe:not([data-open]):not([data-dragging]) .swipe-content:active {
-  background: var(--bg-elev);
+  background: light-dark(var(--bg-elev), #2c2c2e);
 }
 
 .swipe-actions {
@@ -323,24 +323,5 @@
   to {
     max-height: 0;
     opacity: 0;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  .content--bookmarks {
-    background: #000;
-  }
-
-  .swipe,
-  .swipe-content {
-    background: var(--bg-elev);
-  }
-
-  .swipe:not([data-open]):not([data-dragging]) .swipe-content:active {
-    background: #2c2c2e;
-  }
-
-  .bm-search {
-    background: var(--bg-elev);
   }
 }

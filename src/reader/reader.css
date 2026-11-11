@@ -2,6 +2,10 @@
    serif body, indented paragraphs without gaps, centred chapter heading. */
 
 .reader {
+  /* The aA menu's choices (plan.md step 28) arrive as inline custom properties on this element;
+     these are the defaults for a reader who never opened it. */
+  --reader-size: 18px;
+  --reader-leading: 1.55;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -135,7 +139,7 @@
   max-width: 42em;
   margin: 0 auto;
   padding: calc(var(--safe-top) + 56px) calc(var(--safe-right) + 22px) calc(var(--safe-bottom) + 64px) calc(var(--safe-left) + 22px);
-  font: 18px/1.55 var(--font-serif);
+  font: var(--reader-size) / var(--reader-leading) var(--font-serif);
   /* The window corrects the scroll position itself when a paragraph above the viewport is
      measured; the browser's own anchoring would correct it a second time. */
   overflow-anchor: none;
@@ -143,7 +147,7 @@
 
 @media (min-width: 700px) {
   .reader-page {
-    font-size: 20px;
+    font-size: calc(var(--reader-size) + 2px);
   }
 }
 
@@ -185,7 +189,6 @@
    own long-press behaviour, text selection and the iOS callout, is turned off on sentences; Copy
    on the card covers copying. */
 .sent {
-  --highlight: rgba(255, 214, 10, 0.42);
   border-radius: 4px;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
@@ -194,12 +197,6 @@
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  .sent {
-    --highlight: rgba(255, 204, 0, 0.3);
-  }
 }
 
 .sent--active {

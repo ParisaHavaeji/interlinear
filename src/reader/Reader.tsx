@@ -48,6 +48,13 @@
  * moved it, the windowed page scrolled until the sentence is rendered and in view, and the card
  * opened on it (on the word, for a word bookmark). The route is then replaced with the plain
  * chapter, so the jump happens once.
+ *
+ * The aA button (step 28, §1.8) opens the appearance menu (`AppearanceMenu.tsx`): reading
+ * font, text size, line spacing and theme, kept as one `settings` row (`reader/appearance.ts`)
+ * and applied as custom properties on the Reader's root and a `data-theme` attribute on `<html>`
+ * while the Reader is open. A change that reflows the page (font, size, spacing) keeps the
+ * place being read: the windowed body notes which paragraph was at the top of the viewport, and
+ * how far into it, before it rebuilds its height map, and scrolls back there afterwards.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
@@ -63,8 +70,10 @@ import { useDictState } from '../dict/installer.ts'
 import type { LookupResult } from '../dict/lookup.ts'
 import { dictionary } from '../dict/shards.ts'
 import { useLiveQuery } from '../store/hooks.ts'
-import { ARTICLE_COLOURS_KEY, useSetting } from '../store/settings.ts'
+import { APPEARANCE_KEY, ARTICLE_COLOURS_KEY, setSetting, useSetting } from '../store/settings.ts'
 import { BottomCard } from '../ui/BottomCard.tsx'
+import { type Appearance, appearanceStyle, metricsKey, sanitizeAppearance, themeAttribute } from './appearance.ts'
+import { AppearanceMenu } from './AppearanceMenu.tsx'
 import { BeadIndex, revealDelta, sentenceCard, stepSentence } from './card.ts'
 import { ChaptersSheet } from './ChaptersSheet.tsx'
 import { ReaderBar, ReaderFooter, useChrome } from './ReaderChrome.tsx'
@@ -218,6 +227,29 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   const [pick, setPick] = useState(0)
   const dictState = useDictState()
   const colours = useSetting(ARTICLE_COLOURS_KEY, sanitizeArticleColours)
+
+  // Appearance (step 28): the menu's choices, as inline custom properties on the root and the
+  // theme on <html> for as long as the Reader is open; the other screens follow the system.
+  // A change shows at once from local state, ahead of the live query: two quick taps on the
+  // size stepper must step twice, not read the same stored size both times.
+  const storedAppearance = useSetting(APPEARANCE_KEY, sanitizeAppearance)
+  const [localAppearance, setLocalAppearance] = useState<Appearance | null>(null)
+  const appearance = localAppearance ?? storedAppearance
+  const changeAppearance = (next: Appearance) => {
+    setLocalAppearance(next)
+    void setSetting(APPEARANCE_KEY, next)
+  }
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
+  const pageStyle = appearanceStyle(appearance)
+  useEffect(() => {
+    const root = document.documentElement
+    const theme = themeAttribute(appearance.theme)
+    if (theme === null) delete root.dataset.theme
+    else root.dataset.theme = theme
+    return () => {
+      delete root.dataset.theme
+    }
+  }, [appearance.theme])
 
   // A chapter change closes the card; so does a re-alignment that dropped the sentence. Not
   // while a jump is pending: its arrival may have opened the card in this very commit (the
@@ -462,14 +494,14 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
 
   if (data === undefined) {
     return (
-      <div class="reader">
+      <div class="reader" style={pageStyle}>
         <ReaderBar title="" onBack={onBack} />
       </div>
     )
   }
   if (data === null || chapters === null || current === undefined) {
     return (
-      <div class="reader">
+      <div class="reader" style={pageStyle}>
         <ReaderBar title="" onBack={onBack} />
         <main class="reader-page">
           <p class="reader-note">This book is no longer in the library.</p>
@@ -483,8 +515,16 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   const heading = current.heading ?? (chapters.length === 1 ? data.book.title : `Chapter ${idx + 1}`)
 
   return (
-    <div class={chrome.hidden ? 'reader reader--chrome-hidden' : 'reader'} ref={pageRef}>
-      <ReaderBar title={data.book.title} onBack={onBack} onContents={ready ? () => setContents(true) : undefined} onBookmarks={() => onBookmarks(idx)} />
+    <div class={chrome.hidden ? 'reader reader--chrome-hidden' : 'reader'} ref={pageRef} style={pageStyle}>
+      <ReaderBar
+        title={data.book.title}
+        onBack={onBack}
+        onContents={ready ? () => setContents(true) : undefined}
+        onBookmarks={() => onBookmarks(idx)}
+        onAppearance={() => setAppearanceOpen(true)}
+        appearanceOpen={appearanceOpen}
+      />
+      <AppearanceMenu open={appearanceOpen} value={appearance} onChange={changeAppearance} onClose={() => setAppearanceOpen(false)} />
       <main
         class="reader-page"
         lang={data.lang}
@@ -504,6 +544,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
           highlight={highlight}
           uncertain={uncertain}
           word={word}
+          metrics={metricsKey(appearance)}
           jump={jump === null ? null : { key: jump.key, para: jump.para, sentence: jump.sentence }}
           onArrive={arrive}
         />
@@ -645,6 +686,8 @@ interface BodyProps {
   uncertain: ReadonlySet<number>
   /** The word on the card (step 24), highlighted on the page; null in the other modes. */
   word: WordRef | null
+  /** Names the font, size and spacing in force (step 28); a change means every height is stale. */
+  metrics: string
   /** A sentence to scroll to once (step 26): its paragraph's position in the chapter and its id. */
   jump: { key: string; para: number; sentence: number } | null
   /** The jump is over: the sentence is in view (`found`), or it is not in that paragraph. */
@@ -656,10 +699,12 @@ const JUMP_INSET = 0.15
 /** A jump that has not found its sentence after this many renders gives up. */
 const JUMP_ATTEMPTS = 6
 
-function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, jump, onArrive }: BodyProps) {
+function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, metrics, jump, onArrive }: BodyProps) {
   const listRef = useRef<HTMLDivElement>(null)
+  const topRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<HeightMap | null>(null)
   const widthRef = useRef(-1)
+  const metricsRef = useRef('')
   const frameRef = useRef(0)
   const [range, setRange] = useState<RenderRange>({ start: 0, end: Math.min(paragraphs.length, INITIAL_PARAGRAPHS), top: 0, bottom: 0 })
   const [, setTick] = useState(0)
@@ -678,27 +723,48 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, jump, 
     setRange((prev) => (sameRange(prev, next) ? prev : next))
   }
 
-  // After every render: (re)build the height map if the width changed, measure what is on
-  // screen, keep the visible text still, and settle the window.
+  // After every render: (re)build the height map if the width or the type changed, measure
+  // what is on screen, keep the visible text still, and settle the window.
   useLayoutEffect(() => {
     const list = listRef.current
     if (list === null) return
     const width = list.clientWidth
-    if (mapRef.current === null || width !== widthRef.current || mapRef.current.length !== paragraphs.length) {
+    const old = mapRef.current
+    const rebuild = old === null || width !== widthRef.current || metrics !== metricsRef.current || old.length !== paragraphs.length
+    /** The place being read before a rebuild: the paragraph at the viewport's top and how far into it. */
+    let anchor: { index: number; fraction: number } | null = null
+    if (rebuild) {
+      if (old !== null && old.length === paragraphs.length) {
+        const y = -list.getBoundingClientRect().top
+        if (y >= 0 && y < old.total()) {
+          const index = old.indexAt(y)
+          const height = old.heightOf(index)
+          anchor = { index, fraction: height > 0 ? (y - old.offsetOf(index)) / height : 0 }
+        }
+      }
       widthRef.current = width
-      const metrics = metricsOf(list)
-      const estimates = paragraphs.map((p) => estimateHeight(p.text.length, metrics))
-      if (mapRef.current === null) mapRef.current = new HeightMap(estimates)
-      else mapRef.current.reset(estimates)
+      metricsRef.current = metrics
+      const m = metricsOf(list)
+      const estimates = paragraphs.map((p) => estimateHeight(p.text.length, m))
+      if (old === null) mapRef.current = new HeightMap(estimates)
+      else old.reset(estimates)
     }
-    const map = mapRef.current
+    const map = mapRef.current!
     let shift = 0
     for (const el of list.querySelectorAll<HTMLElement>('.para')) {
       const rect = el.getBoundingClientRect()
       const delta = map.set(Number(el.dataset.idx), rect.height)
       // A paragraph above the viewport that turned out taller or shorter than estimated moved
       // everything below it by `delta`; scroll along so the visible text stays put.
-      if (delta !== 0 && rect.top < 0) shift += delta
+      if (anchor === null && delta !== 0 && rect.top < 0) shift += delta
+    }
+    if (anchor !== null) {
+      // The whole chapter reflowed (a font change, a rotation): give the top spacer the height
+      // the new map says now, so the rendered paragraphs sit where the map puts them, and
+      // scroll back to the anchor at the same depth into its paragraph.
+      if (topRef.current !== null) topRef.current.style.height = `${map.offsetOf(range.start)}px`
+      const target = map.offsetOf(anchor.index) + anchor.fraction * map.heightOf(anchor.index)
+      shift = Math.round(target + list.getBoundingClientRect().top)
     }
     if (shift !== 0) window.scrollBy(0, shift)
     update()
@@ -765,7 +831,7 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, jump, 
   }
   return (
     <div class="chapter-body" ref={listRef}>
-      <div class="chapter-spacer" style={{ height: `${range.top}px` }} aria-hidden="true" />
+      <div class="chapter-spacer" ref={topRef} style={{ height: `${range.top}px` }} aria-hidden="true" />
       {items}
       <div class="chapter-spacer" style={{ height: `${range.bottom}px` }} aria-hidden="true" />
     </div>
