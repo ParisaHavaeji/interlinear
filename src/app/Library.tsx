@@ -8,7 +8,7 @@ import { Cover } from '../ui/Cover.tsx'
 import { shareOrDownload } from '../ui/download.ts'
 import { AddBookSheet } from './AddBookSheet.tsx'
 import { RealignSheet } from './RealignSheet.tsx'
-import { debugHash, readHash } from './routes.ts'
+import { debugHash, readHash, SETTINGS_HASH } from './routes.ts'
 import './library.css'
 
 /** Library tab: Books-style bookshelf grid with an "Add book" sheet. */
@@ -27,9 +27,23 @@ export function Library() {
     <div class="screen">
       <header class="top-bar top-bar--library">
         <h1 class="large-title">Library</h1>
-        <button type="button" class="icon-btn" aria-label="Add book" onClick={() => setAdding(true)}>
-          +
-        </button>
+        <div class="top-bar-actions">
+          <a class="icon-btn" href={SETTINGS_HASH} aria-label="Settings">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2" />
+              <path
+                d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </a>
+          <button type="button" class="icon-btn" aria-label="Add book" onClick={() => setAdding(true)}>
+            +
+          </button>
+        </div>
       </header>
 
       <main class={`content ${books && books.length > 0 ? 'content--shelf' : ''}`}>

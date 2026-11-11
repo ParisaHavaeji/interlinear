@@ -1,0 +1,82 @@
+/* Settings screen (plan.md step 23). Groups and rows are shared with the sheets in library.css. */
+
+.top-bar--settings {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: -6px;
+  border: 0;
+  background: none;
+  padding: 4px 4px 4px 0;
+  font: 400 17px var(--font-ui);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.back-btn:active {
+  opacity: 0.6;
+}
+
+.content--settings {
+  display: block;
+  padding-top: 8px;
+  background: var(--bg-elev);
+}
+
+.group-title {
+  margin: 20px 16px 8px;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+
+.row--settings {
+  grid-template-columns: auto 1fr auto;
+}
+
+.row--settings .row-detail {
+  text-align: right;
+  white-space: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.row.is-error .row-detail {
+  text-align: left;
+}
+
+/* The download's thin progress line along the row's bottom, like the cover's. */
+.row-progress {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--separator);
+  overflow: hidden;
+}
+
+.row-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 200ms ease-out;
+}
+
+@media (prefers-color-scheme: dark) {
+  .content--settings {
+    background: #000;
+  }
+
+  .content--settings .group {
+    background: var(--bg-elev);
+  }
+}

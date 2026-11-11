@@ -101,6 +101,23 @@ export class DictStore {
     return next
   }
 
+  /** Whether the shards can be kept at all; false without Cache Storage (a private window). */
+  get persistent(): boolean {
+    return this.cache !== null
+  }
+
+  /**
+   * Make sure a shard of this version is in the cache, fetching it when it is not; nothing is
+   * decoded or returned. The download of step 23 goes through here, one shard at a time.
+   */
+  async cacheShard(key: string): Promise<void> {
+    const info = this.index.shards[key]
+    if (info === undefined || this.cache === null) return
+    const url = shardUrl(this.base, info.file, this.index.version)
+    if ((await this.cache.match(url)) !== undefined) return
+    await this.cache.put(url, await fetchOk(url))
+  }
+
   /** Whether a shard of this version is in the cache. */
   async hasShard(key: string): Promise<boolean> {
     const info = this.index.shards[key]
@@ -179,8 +196,20 @@ export function dictStore(base?: string): Promise<DictStore> {
 
 let shared: Dictionary | null = null
 
-/** The app's one {@link Dictionary}, over {@link dictStore}. */
-export async function dictionary(): Promise<Dictionary> {
-  if (shared === null) shared = (await dictStore()).dictionary()
+/**
+ * The app's one {@link Dictionary}. Its loader goes through {@link dictStore} on every shard,
+ * so a store adopted later (a new version, step 23) is read at once; the LRU is cleared then.
+ */
+export function dictionary(): Dictionary {
+  if (shared === null) shared = new Dictionary((key) => dictStore().then((store) => store.loadShard(key)))
   return shared
+}
+
+/**
+ * Make `next` the store {@link dictStore} and {@link dictionary} read from, after a
+ * {@link DictStore.refresh} found a newer version. Decoded shards of the old one are dropped.
+ */
+export function adoptDictStore(next: DictStore): void {
+  opening = Promise.resolve(next)
+  shared?.shards.clear()
 }

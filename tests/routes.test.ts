@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { debugHash, parseRoute, readHash } from '../src/app/routes.ts'
+import { debugHash, parseRoute, readHash, SETTINGS_HASH } from '../src/app/routes.ts'
 
 describe('parseRoute', () => {
   it('reads the reader route with and without a chapter', () => {
@@ -10,6 +10,11 @@ describe('parseRoute', () => {
 
   it('reads the debug route', () => {
     expect(parseRoute('#/debug/abc')).toEqual({ screen: 'debug', bookId: 'abc' })
+  })
+
+  it('reads the settings route', () => {
+    expect(parseRoute(SETTINGS_HASH)).toEqual({ screen: 'settings' })
+    expect(parseRoute('#/settings/')).toEqual({ screen: 'library' })
   })
 
   it('falls back to the library', () => {

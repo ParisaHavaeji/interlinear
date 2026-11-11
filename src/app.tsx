@@ -2,6 +2,9 @@ import { lazy, Suspense } from 'preact/compat'
 import { useEffect, useState } from 'preact/hooks'
 import { Library } from './app/Library.tsx'
 import { parseRoute, readHash } from './app/routes.ts'
+import { Settings } from './app/Settings.tsx'
+import { dictStateShort } from './dict/download.ts'
+import { useDictState } from './dict/installer.ts'
 import { isIOS, isStandalone } from './pwa/register'
 import { Reader } from './reader/Reader.tsx'
 
@@ -46,6 +49,9 @@ export function App() {
 
   const showInstallHint = isIOS() && !standalone
   const route = parseRoute(useHash())
+  const dictNote = dictStateShort(useDictState())
+
+  if (route.screen === 'settings') return <Settings onBack={toLibrary} />
 
   if (route.screen === 'read') {
     return (
@@ -80,6 +86,7 @@ export function App() {
 
       <footer class="status" aria-live="polite">
         {standalone ? 'Standalone' : 'Browser'} · {online ? 'Online' : 'Offline'}
+        {dictNote !== '' && ` · ${dictNote}`}
       </footer>
     </>
   )

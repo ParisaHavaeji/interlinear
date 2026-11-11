@@ -26,6 +26,15 @@
   opacity: 0.6;
 }
 
+.top-bar-actions {
+  display: flex;
+  gap: 10px;
+}
+
+a.icon-btn {
+  text-decoration: none;
+}
+
 .content--shelf {
   align-items: flex-start;
   justify-content: stretch;
