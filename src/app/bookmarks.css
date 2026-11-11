@@ -5,11 +5,58 @@
   padding-bottom: 10px;
 }
 
+.bm-bar-row {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .back-label {
   max-width: 60vw;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The share (export) button, step 27. */
+.share-btn {
+  border: 0;
+  background: none;
+  padding: 4px;
+  margin-right: -4px;
+  display: inline-flex;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.share-btn:active {
+  opacity: 0.6;
+}
+
+.share-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* The format rows of the export sheet are buttons drawn as list rows. */
+.row--button {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  grid-template-columns: 108px 1fr auto;
+}
+
+.row--button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.row--button + .row--button::before {
+  left: 136px;
 }
 
 /* --- Search field: iOS's rounded grey bar ------------------------------------ */

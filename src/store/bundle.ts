@@ -86,9 +86,9 @@ export function isBundleFileName(name: string): boolean {
   return /\.json$/i.test(name)
 }
 
-/** A file name for the bundle of a book: the title as a slug plus {@link BUNDLE_SUFFIX}. */
-export function bundleFileName(book: Pick<Book, 'title'>): string {
-  const slug = book.title
+/** A title as a file-name slug: ASCII letters and digits, hyphens between, at most 60 characters; empty when nothing is left. */
+export function titleSlug(title: string): string {
+  return title
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
@@ -96,7 +96,11 @@ export function bundleFileName(book: Pick<Book, 'title'>): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 60)
     .replace(/-+$/, '')
-  return `${slug || 'book'}${BUNDLE_SUFFIX}`
+}
+
+/** A file name for the bundle of a book: the title as a slug plus {@link BUNDLE_SUFFIX}. */
+export function bundleFileName(book: Pick<Book, 'title'>): string {
+  return `${titleSlug(book.title) || 'book'}${BUNDLE_SUFFIX}`
 }
 
 /** Collect a book and everything that hangs off it. Throws {@link BundleError} when the book is gone. */

@@ -9,16 +9,24 @@
  * the list follows deletions made here and bookmarks made in the Reader. The model is
  * `bookmarks/list.ts`; the swipe is `ui/SwipeRow.tsx`; the jump itself is the Reader's
  * (`bookmarks/locate.ts`).
+ *
+ * The share button in the top bar (step 27) opens a sheet with the three export formats of
+ * `bookmarks/export.ts` (JSON, Markdown, Anki); the file holds the bookmarks on screen, so a
+ * search narrows the export too, and goes out through the share sheet where there is one and
+ * as a download elsewhere (`ui/download.ts`).
  */
 
 import { useMemo, useState } from 'preact/hooks'
+import { EXPORT_FORMATS, exportBookmarks, type ExportFormat } from '../bookmarks/export.ts'
 import { countLabel, dateLabel, filterGroups, groupBookmarks, wordGloss, wordHeadline, type BookmarkGroup } from '../bookmarks/list.ts'
 import { listBookmarks, removeBookmark } from '../bookmarks/store.ts'
 import { articleColour, sanitizeArticleColours, type ArticleColours } from '../reader/word.ts'
 import { db, type Book, type BookmarkRow } from '../store/db.ts'
 import { useBooks, useLiveQuery } from '../store/hooks.ts'
 import { ARTICLE_COLOURS_KEY, useSetting } from '../store/settings.ts'
+import { BottomSheet } from '../ui/BottomSheet.tsx'
 import { Cover } from '../ui/Cover.tsx'
+import { shareOrDownload } from '../ui/download.ts'
 import { SwipeRow } from '../ui/SwipeRow.tsx'
 import { readHash } from './routes.ts'
 import './bookmarks.css'
@@ -41,6 +49,11 @@ export function Bookmarks({ book, onBack }: Props) {
   const shown = useMemo(() => filterGroups(groups, query), [groups, query])
   const scoped = book === undefined ? undefined : books?.find((b) => b.id === book.id)
   const now = Date.now()
+  const shownCount = shown.reduce((n, g) => n + g.rows.length, 0)
+  /** The export sheet (step 27) is open. */
+  const [exporting, setExporting] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const jump = (row: BookmarkRow) => {
     location.hash = readHash(row.bookId, row.payload.chapter, row.id)
@@ -49,16 +62,39 @@ export function Bookmarks({ book, onBack }: Props) {
     setOpenId((id) => (id === row.id ? null : id))
     removeBookmark(row.id).catch((err: unknown) => console.error('could not remove the bookmark', err))
   }
+  const exportAs = async (format: ExportFormat) => {
+    if (exportBusy) return
+    setExportBusy(true)
+    setExportError(null)
+    try {
+      const out = exportBookmarks(shown, format, Date.now(), scoped)
+      await shareOrDownload(new File([out.text], out.name, { type: out.type }))
+      setExporting(false)
+    } catch (err) {
+      console.error('export failed', err)
+      setExportError('Could not export the bookmarks.')
+    } finally {
+      setExportBusy(false)
+    }
+  }
 
   return (
     <div class="screen">
       <header class="top-bar top-bar--settings top-bar--bookmarks">
-        <button type="button" class="back-btn" aria-label={scoped === undefined ? 'Back to Library' : `Back to ${scoped.title}`} onClick={onBack}>
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-            <path d="M15 4.5 7.5 12l7.5 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          <span class="back-label">{scoped === undefined ? 'Library' : scoped.title}</span>
-        </button>
+        <div class="bm-bar-row">
+          <button type="button" class="back-btn" aria-label={scoped === undefined ? 'Back to Library' : `Back to ${scoped.title}`} onClick={onBack}>
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+              <path d="M15 4.5 7.5 12l7.5 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="back-label">{scoped === undefined ? 'Library' : scoped.title}</span>
+          </button>
+          <button type="button" class="share-btn" aria-label="Export bookmarks" title="Export" disabled={shownCount === 0} onClick={() => setExporting(true)}>
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+              <path d="M12 15V4m0 0L8 8m4-4 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M7 10H5.5v10h13V10H17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+        </div>
         <h1 class="large-title">Bookmarks</h1>
         <label class="bm-search">
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -112,6 +148,32 @@ export function Bookmarks({ book, onBack }: Props) {
           ))
         )}
       </main>
+
+      <BottomSheet open={exporting} onClose={() => setExporting(false)} title="Export Bookmarks">
+        <p class="sheet-text">
+          {countLabel(shownCount)}
+          {query.trim() !== '' ? ` matching “${query.trim()}”` : scoped !== undefined ? ` from ${scoped.title}` : shown.length === 1 ? ` from ${shown[0].book.title}` : ` from ${shown.length} books`}.
+        </p>
+        <div class="group">
+          {EXPORT_FORMATS.map((f) => (
+            <button type="button" class="row row--button" key={f.key} disabled={exportBusy} onClick={() => void exportAs(f.key)}>
+              <span class="row-label">{f.label}</span>
+              <span class="row-detail">{f.detail}</span>
+              <span class="row-chevron" aria-hidden="true">
+                ›
+              </span>
+            </button>
+          ))}
+        </div>
+        <p class="group-footer">
+          Anki: in the desktop app choose File › Import and pick the .tsv; the fields are the German and the English.
+        </p>
+        {exportError !== null && (
+          <p class="form-error" role="alert">
+            {exportError}
+          </p>
+        )}
+      </BottomSheet>
     </div>
   )
 }
