@@ -73,6 +73,10 @@ describe('service worker template', () => {
     expect(matchCallsWithOptions.length).toBe(matchCalls.length)
   })
 
+  it('leaves dictionary requests to the page, which caches them for longer than one app version', () => {
+    expect(template).toMatch(/url\.pathname\.startsWith\(BASE \+ 'dict\/'\)\)\s*return/)
+  })
+
   it('throws when a placeholder is missing', () => {
     expect(() =>
       renderServiceWorker('nothing here', { base: '/', precache: [], version: 'v' }),

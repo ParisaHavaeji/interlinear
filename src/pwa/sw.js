@@ -40,6 +40,9 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
+  // The dictionary (plan.md step 22) keeps its shards in its own cache, `interlinear-dict`,
+  // which outlives app versions; the page fetches and caches them itself.
+  if (url.pathname.startsWith(BASE + 'dict/')) return
 
   // SPA navigations: serve the cached shell, fall back to network.
   if (request.mode === 'navigate') {

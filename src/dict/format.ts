@@ -125,3 +125,28 @@ export function shardKey(form: string): string {
 export function shardFile(key: string): string {
   return `${key}.json.gz`
 }
+
+/** Whether the bytes start with gzip's magic number. */
+export function isGzip(bytes: Uint8Array): boolean {
+  return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b
+}
+
+/**
+ * Parse the bytes of a shard file as served or cached: gunzipped first when they are still
+ * gzip (see the note on `Content-Encoding` above), parsed as JSON either way. Throws on a shard
+ * that is neither.
+ */
+export async function decodeShard(bytes: Uint8Array): Promise<DictShard> {
+  let json: string
+  if (isGzip(bytes)) {
+    const stream = new Response(bytes as unknown as ArrayBuffer).body!.pipeThrough(new DecompressionStream('gzip'))
+    json = await new Response(stream).text()
+  } else {
+    json = new TextDecoder().decode(bytes)
+  }
+  const shard = JSON.parse(json) as Partial<DictShard>
+  if (typeof shard !== 'object' || shard === null || typeof shard.entries !== 'object' || typeof shard.forms !== 'object') {
+    throw new Error('not a dictionary shard')
+  }
+  return shard as DictShard
+}
