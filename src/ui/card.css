@@ -175,6 +175,11 @@
   cursor: default;
 }
 
+/* A toggled action (Bookmarked, step 25): tinted in the accent so the state reads at a glance. */
+.card-action--on {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 /* --- Repair mode (plan.md step 20) --------------------------------------- */
 
 /* Title with a Done button on the right, where the sentence card has its arrows. */

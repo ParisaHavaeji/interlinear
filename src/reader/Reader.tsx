@@ -36,14 +36,21 @@
  * coloured by gender, the alternatives, and the sentence with a link to its translation. A tap
  * on a sentence's punctuation, its whitespace or the small chevron after it opens the sentence
  * card instead. The model is `reader/word.ts`.
+ *
+ * Bookmark on either card (step 25, §1.7) saves what the card shows (`bookmarks/model.ts`: the
+ * bead with both texts, or the word with its headword and sentence) to the `bookmarks` table
+ * (`bookmarks/store.ts`) and removes it on a second tap; the book's bookmarks are loaded live,
+ * so the pill reads "Bookmarked" for a bead or word that has one.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ChapterMeta } from '../align/pipeline.ts'
 import type { Lang } from '../import/types.ts'
 import { getParagraphs } from '../store/books.ts'
-import { db, type Book, type ParagraphRow } from '../store/db.ts'
+import { db, type Book, type BookmarkRow, type ParagraphRow } from '../store/db.ts'
 import { applyRepair, BlockIndex, describeBead, type RepairOp } from '../align/repair.ts'
+import { findSentenceBookmark, findWordBookmark, sentenceBookmark, wordBookmark } from '../bookmarks/model.ts'
+import { addBookmark, listBookmarks, removeBookmark } from '../bookmarks/store.ts'
 import { useDictState } from '../dict/installer.ts'
 import type { LookupResult } from '../dict/lookup.ts'
 import { dictionary } from '../dict/shards.ts'
@@ -88,6 +95,7 @@ interface Loaded {
 }
 
 const EMPTY = new Set<number>()
+const NO_BOOKMARKS: readonly BookmarkRow[] = []
 /** A pointer held still on a sentence this long opens the repair card. */
 const LONG_PRESS_MS = 500
 /** A pointer that moves further than this before then is a scroll, not a press. */
@@ -150,6 +158,8 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
   const [pick, setPick] = useState(0)
   const dictState = useDictState()
   const colours = useSetting(ARTICLE_COLOURS_KEY, sanitizeArticleColours)
+  /** The book's bookmarks (step 25), live, so the cards show which bead or word has one. */
+  const bookmarks = useLiveQuery(() => listBookmarks(bookId), [bookId]) ?? NO_BOOKMARKS
 
   // A chapter change closes the card; so does a re-alignment that dropped the sentence.
   useEffect(() => {
@@ -365,6 +375,23 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
     await navigator.clipboard.writeText(wordView === null ? word.token : wordCopyText(wordView, word.token))
   }
 
+  // Bookmarks (step 25): the row the open card is on, if any, and the toggles. The lookup must
+  // have answered before a word can be bookmarked, so the headword it showed is recorded.
+  const sentenceMark = card === null ? undefined : findSentenceBookmark(bookmarks, card.highlight)
+  const wordMark = word === null ? undefined : findWordBookmark(bookmarks, word)
+  const lookupDone = word !== null && lookup !== null && sameWord(lookup.word, word) && (lookup.result !== null || lookup.error !== null)
+  const saveBookmark = async (existing: BookmarkRow | undefined, make: () => Parameters<typeof addBookmark>[1]) => {
+    try {
+      if (existing !== undefined) await removeBookmark(existing.id)
+      else {
+        await addBookmark(bookId, make())
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(10)
+      }
+    } catch (err) {
+      console.error('bookmark failed', err)
+    }
+  }
+
   if (data === undefined) {
     return (
       <div class="reader">
@@ -454,6 +481,25 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
             onPick={setPick}
             onShowSentence={() => setWord(null)}
             onCopy={copyWord}
+            bookmarked={wordMark !== undefined}
+            onBookmark={
+              lookupDone
+                ? () =>
+                    saveBookmark(wordMark, () => ({
+                      type: 'word',
+                      payload: wordBookmark(
+                        word,
+                        wordView,
+                        data.text.get(word.sentence) ?? word.token,
+                        sentenceCard(data.beads, word.sentence)
+                          .translation.map((i) => data.otherText.get(i) ?? '')
+                          .filter((t) => t !== '')
+                          .join(' '),
+                        { chapter: idx, heading },
+                      ),
+                    }))
+                : undefined
+            }
           />
         )}
         {card !== null && word === null && repairing && repairText !== null && (
@@ -472,6 +518,13 @@ export function Reader({ bookId, chapter, onBack, onChapter }: Props) {
             lang={data.otherLang}
             text={(i) => data.otherText.get(i)}
             onCopy={copy}
+            bookmarked={sentenceMark !== undefined}
+            onBookmark={() =>
+              saveBookmark(sentenceMark, () => ({
+                type: 'sentence',
+                payload: sentenceBookmark(card, (i) => data.text.get(i), (i) => data.otherText.get(i), { chapter: idx, heading }),
+              }))
+            }
             onFix={card.status === 'unaligned' || active === null ? undefined : () => openRepair(active)}
           />
         )}

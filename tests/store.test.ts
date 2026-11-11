@@ -2,7 +2,8 @@ import 'fake-indexeddb/auto'
 import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { formatOf, importFile, ImportError, type ImportedText } from '../src/import/file.ts'
-import { addBook, deleteBook, getParagraphs, listBooks, newId } from '../src/store/books.ts'
+import { addBookmark } from '../src/bookmarks/store.ts'
+import { addBook, deleteBook, getParagraphs, listBooks } from '../src/store/books.ts'
 import { openDatabase, type InterlinearDB } from '../src/store/db.ts'
 
 let db: InterlinearDB
@@ -83,7 +84,7 @@ describe('deleteBook', () => {
     const a = await addBook({ title: 'A', author: '', de: DE, en: EN }, db)
     const b = await addBook({ title: 'B', author: '', de: DE, en: EN }, db)
     await db.progress.put({ bookId: a.id, sentenceIdx: 3, scrollFraction: 0.5 })
-    await db.bookmarks.add({ id: newId(), bookId: a.id, type: 'word', payload: {}, note: '', created: 1 })
+    await addBookmark(a.id, { type: 'sentence', payload: { sentences: [0], translation: [0], text: 'Als Gregor Samsa erwachte.', translationText: 'One morning Gregor Samsa woke.', chapter: 0, heading: 'A' } }, db)
 
     await deleteBook(a.id, db)
 

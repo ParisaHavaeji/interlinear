@@ -2,9 +2,10 @@
  * The bottom card's content in sentence mode (plan.md step 19, §1.5): the chapter name between
  * Previous / Next arrows in the fixed header, then the English sentence(s) of the tapped bead in
  * the reading font, a note with the neighbouring English sentences when the match is uncertain
- * or missing, and the actions (Bookmark, which waits for step 25; Copy; Fix alignment, which
- * switches the card to the repair mode of step 20). The Reader owns the highlight and the
- * stepping; this component only draws what `reader/card.ts` worked out.
+ * or missing, and the actions (Bookmark, which saves or removes the bead's bookmark (step 25)
+ * and shows filled while one exists; Copy; Fix alignment, which switches the card to the repair
+ * mode of step 20). The Reader owns the highlight, the stepping and the bookmarks; this
+ * component only draws what `reader/card.ts` worked out.
  */
 
 import { useEffect, useState } from 'preact/hooks'
@@ -24,6 +25,10 @@ interface Props {
   onNext?: () => void
   /** Copy the sentence and its translation; resolves once on the clipboard. */
   onCopy: () => Promise<void>
+  /** Whether the bead on the card is bookmarked (step 25). */
+  bookmarked: boolean
+  /** Add the bookmark, or remove it when `bookmarked`. */
+  onBookmark: () => void
   /** Open the repair card for this sentence (step 20); absent when there is nothing to repair. */
   onFix?: () => void
 }
@@ -46,7 +51,7 @@ export function SentenceCardHeader({ heading, onPrev, onNext }: Pick<Props, 'hea
   )
 }
 
-export function SentenceCardBody({ card, lang, text, onCopy, onFix }: Pick<Props, 'card' | 'lang' | 'text' | 'onCopy' | 'onFix'>) {
+export function SentenceCardBody({ card, lang, text, onCopy, bookmarked, onBookmark, onFix }: Pick<Props, 'card' | 'lang' | 'text' | 'onCopy' | 'bookmarked' | 'onBookmark' | 'onFix'>) {
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -88,12 +93,7 @@ export function SentenceCardBody({ card, lang, text, onCopy, onFix }: Pick<Props
         <p class="card-note">No matching sentence in the translation. The text around where it would be is shown.</p>
       )}
       <div class="card-actions">
-        <button type="button" class="card-action" disabled title="Bookmarks: coming soon">
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path d="M6.5 3.5h11v17l-5.5-4.5-5.5 4.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-          </svg>
-          Bookmark
-        </button>
+        <BookmarkAction bookmarked={bookmarked} onClick={onBookmark} />
         <button type="button" class="card-action" onClick={copy} disabled={card.status === 'unaligned'}>
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <rect x="8" y="8" width="11" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
@@ -110,5 +110,24 @@ export function SentenceCardBody({ card, lang, text, onCopy, onFix }: Pick<Props
         </button>
       </div>
     </>
+  )
+}
+
+/** The Bookmark pill of both cards: a ribbon, filled while the bookmark exists; a tap toggles it. */
+export function BookmarkAction({ bookmarked, onClick, disabled = false }: { bookmarked: boolean; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      class={bookmarked ? 'card-action card-action--on' : 'card-action'}
+      aria-pressed={bookmarked}
+      onClick={onClick}
+      disabled={disabled}
+      title={bookmarked ? 'Remove this bookmark' : 'Bookmark this'}
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path d="M6.5 3.5h11v17l-5.5-4.5-5.5 4.5z" fill={bookmarked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+      </svg>
+      {bookmarked ? 'Bookmarked' : 'Bookmark'}
+    </button>
   )
 }

@@ -2,8 +2,9 @@
  * The Books chrome around the page (plan.md step 17): a top bar with back, contents, title,
  * aA, search and bookmark, and a footer with the chapter's progress line and how many pages
  * are left. Both slide away as the reader scrolls down and come back on the way up
- * (`useChrome`, over the arithmetic in `chrome.ts`). The aA menu, search and bookmarks are
- * later steps (28, 25); their buttons are in place but disabled until then.
+ * (`useChrome`, over the arithmetic in `chrome.ts`). The aA menu, search and the bookmarks
+ * list are later steps (28, 26); their buttons are in place but disabled until then. Bookmarks
+ * themselves are made from the bottom card (step 25).
  */
 
 import type { RefObject } from 'preact'

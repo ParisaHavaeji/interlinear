@@ -5,13 +5,15 @@
  * how the word was reached when that is not obvious, the sources), the other headwords as one-
  * line alternatives the reader can switch to, the sentence the word came from with the word
  * marked and a link to its translation (the sentence card of step 19), and the actions
- * (Bookmark, which waits for step 25; Copy). A word the dictionary lacks gets a plain "No entry"
- * with the dictionary's state when that explains it. The Reader owns the lookup and the state;
- * this component draws a {@link WordCardView} from `reader/word.ts`.
+ * (Bookmark, which saves or removes the word's bookmark (step 25) once the lookup has answered,
+ * and shows filled while one exists; Copy). A word the dictionary lacks gets a plain "No entry"
+ * with the dictionary's state when that explains it. The Reader owns the lookup, the bookmarks
+ * and the state; this component draws a {@link WordCardView} from `reader/word.ts`.
  */
 
 import { useEffect, useState } from 'preact/hooks'
 import type { Lang } from '../import/types.ts'
+import { BookmarkAction } from './SentenceCard.tsx'
 import { articleColour, type Article, type ArticleColours, type WordCardView, type WordRef } from './word.ts'
 
 interface HeaderProps {
@@ -48,9 +50,13 @@ interface BodyProps {
   onShowSentence: () => void
   /** Copy the entry; resolves once on the clipboard. */
   onCopy: () => Promise<void>
+  /** Whether this word is bookmarked (step 25). */
+  bookmarked: boolean
+  /** Add the bookmark, or remove it when `bookmarked`; absent until the lookup has answered. */
+  onBookmark?: () => void
 }
 
-export function WordCardBody({ word, view, error, dictHint, colours, lang, sentence, onPick, onShowSentence, onCopy }: BodyProps) {
+export function WordCardBody({ word, view, error, dictHint, colours, lang, sentence, onPick, onShowSentence, onCopy, bookmarked, onBookmark }: BodyProps) {
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -151,12 +157,7 @@ export function WordCardBody({ word, view, error, dictHint, colours, lang, sente
         </p>
       )}
       <div class="card-actions">
-        <button type="button" class="card-action" disabled title="Bookmarks: coming soon">
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path d="M6.5 3.5h11v17l-5.5-4.5-5.5 4.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-          </svg>
-          Bookmark
-        </button>
+        <BookmarkAction bookmarked={bookmarked} onClick={onBookmark ?? (() => undefined)} disabled={onBookmark === undefined} />
         <button type="button" class="card-action" onClick={copy} disabled={view === null && error === null}>
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <rect x="8" y="8" width="11" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
