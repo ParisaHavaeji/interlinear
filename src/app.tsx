@@ -1,7 +1,8 @@
 import { lazy, Suspense } from 'preact/compat'
 import { useEffect, useState } from 'preact/hooks'
+import { Bookmarks } from './app/Bookmarks.tsx'
 import { Library } from './app/Library.tsx'
-import { parseRoute, readHash } from './app/routes.ts'
+import { bookmarksHash, parseRoute, readHash } from './app/routes.ts'
 import { Settings } from './app/Settings.tsx'
 import { dictStateShort } from './dict/download.ts'
 import { useDictState } from './dict/installer.ts'
@@ -27,7 +28,8 @@ const toLibrary = () => {
 }
 
 /**
- * App shell: hash-routed between the Library (Phase 1), the Reader (Phase 3, `#/read/<id>`) and,
+ * App shell: hash-routed between the Library (Phase 1), the Reader (Phase 3, `#/read/<id>`),
+ * Settings, the bookmarks screen (step 26, `#/bookmarks`, or one book's from its Reader) and,
  * in development, the alignment debug view. The install hint and status footer from Phase 0 show
  * on the Library only.
  */
@@ -53,14 +55,39 @@ export function App() {
 
   if (route.screen === 'settings') return <Settings onBack={toLibrary} />
 
+  if (route.screen === 'bookmarks') {
+    const { book } = route
+    return (
+      <Bookmarks
+        book={book}
+        onBack={
+          book === undefined
+            ? toLibrary
+            : () => {
+                location.hash = readHash(book.id, book.chapter)
+              }
+        }
+      />
+    )
+  }
+
   if (route.screen === 'read') {
     return (
       <Reader
         bookId={route.bookId}
         chapter={route.chapter}
+        at={route.at}
         onBack={toLibrary}
         onChapter={(chapter) => {
           location.hash = readHash(route.bookId, chapter)
+        }}
+        onBookmarks={(chapter) => {
+          location.hash = bookmarksHash({ id: route.bookId, chapter })
+        }}
+        onArrive={(chapter) => {
+          // The bookmark has been opened: the route now says only where the reader is, so a
+          // reload or a change to the book's bookmarks does not open it again.
+          location.replace(readHash(route.bookId, chapter))
         }}
       />
     )

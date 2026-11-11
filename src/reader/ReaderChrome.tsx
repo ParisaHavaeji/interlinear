@@ -2,9 +2,9 @@
  * The Books chrome around the page (plan.md step 17): a top bar with back, contents, title,
  * aA, search and bookmark, and a footer with the chapter's progress line and how many pages
  * are left. Both slide away as the reader scrolls down and come back on the way up
- * (`useChrome`, over the arithmetic in `chrome.ts`). The aA menu, search and the bookmarks
- * list are later steps (28, 26); their buttons are in place but disabled until then. Bookmarks
- * themselves are made from the bottom card (step 25).
+ * (`useChrome`, over the arithmetic in `chrome.ts`). The ribbon opens the book's bookmarks
+ * (step 26); bookmarks themselves are made from the bottom card (step 25). The aA menu and
+ * search are later steps (28); their buttons are in place but disabled until then.
  */
 
 import type { RefObject } from 'preact'
@@ -59,9 +59,11 @@ interface BarProps {
   onBack: () => void
   /** Opens the chapter list; absent while there is nothing to list. */
   onContents?: () => void
+  /** Opens the book's bookmarks (step 26); absent while the book is still loading. */
+  onBookmarks?: () => void
 }
 
-export function ReaderBar({ title, onBack, onContents }: BarProps) {
+export function ReaderBar({ title, onBack, onContents, onBookmarks }: BarProps) {
   return (
     <header class="reader-bar">
       <div class="reader-bar-group">
@@ -90,7 +92,7 @@ export function ReaderBar({ title, onBack, onContents }: BarProps) {
             <path d="m15.5 15.5 5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
           </svg>
         </button>
-        <button type="button" class="reader-btn" aria-label="Bookmark" title="Bookmarks: coming soon" disabled>
+        <button type="button" class="reader-btn" aria-label="Bookmarks" title="Bookmarks" disabled={onBookmarks === undefined} onClick={onBookmarks}>
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
             <path d="M6.5 3.5h11v17l-5.5-4.5-5.5 4.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
           </svg>

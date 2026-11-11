@@ -8,7 +8,7 @@ import { Cover } from '../ui/Cover.tsx'
 import { shareOrDownload } from '../ui/download.ts'
 import { AddBookSheet } from './AddBookSheet.tsx'
 import { RealignSheet } from './RealignSheet.tsx'
-import { debugHash, readHash, SETTINGS_HASH } from './routes.ts'
+import { BOOKMARKS_HASH, debugHash, readHash, SETTINGS_HASH } from './routes.ts'
 import './library.css'
 
 /** Library tab: Books-style bookshelf grid with an "Add book" sheet. */
@@ -28,6 +28,11 @@ export function Library() {
       <header class="top-bar top-bar--library">
         <h1 class="large-title">Library</h1>
         <div class="top-bar-actions">
+          <a class="icon-btn" href={BOOKMARKS_HASH} aria-label="Bookmarks">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M6.5 3.5h11v17l-5.5-4.5-5.5 4.5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+            </svg>
+          </a>
           <a class="icon-btn" href={SETTINGS_HASH} aria-label="Settings">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="2" />

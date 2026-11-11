@@ -1,0 +1,299 @@
+/* Bookmarks screen (plan.md step 26). The top bar and back button are the Settings screen's
+   (settings.css); the groups and rows follow the grouped lists of library.css. */
+
+.top-bar--bookmarks {
+  padding-bottom: 10px;
+}
+
+.back-label {
+  max-width: 60vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Search field: iOS's rounded grey bar ------------------------------------ */
+
+.bm-search {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 7px 8px 7px 10px;
+  border-radius: 10px;
+  background: var(--bg-elev);
+  color: var(--fg-2);
+}
+
+.bm-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: 17px var(--font-ui);
+  color: var(--fg);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.bm-search input::-webkit-search-cancel-button,
+.bm-search input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.bm-search-clear {
+  border: 0;
+  background: none;
+  padding: 2px;
+  margin: -2px;
+  display: inline-flex;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.bm-search-clear:active {
+  opacity: 0.6;
+}
+
+/* --- The list ----------------------------------------------------------------- */
+
+.content--bookmarks {
+  display: block;
+  padding-top: 4px;
+  padding-bottom: calc(var(--safe-bottom) + 32px);
+  background: var(--bg-elev);
+}
+
+.content--bookmarks .empty {
+  margin: 20vh auto 0;
+}
+
+.empty-ribbon {
+  display: block;
+  margin: 0 auto 12px;
+  color: var(--fg-2);
+}
+
+.bm-none {
+  margin: 48px 16px;
+  text-align: center;
+  color: var(--fg-2);
+  font-size: 15px;
+}
+
+.bm-group + .bm-group {
+  margin-top: 28px;
+}
+
+.bm-group-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 4px 10px;
+}
+
+/* A thumbnail of the cover: its gradient alone, too small for the title. Qualified so it beats
+   `.cover`'s full width whichever stylesheet loads last; fixed padding, since the cover's
+   percentages are of the page here. */
+.bm-group-head .cover-bm {
+  width: 36px;
+  flex: none;
+  border-radius: 2px 3px 3px 2px;
+  padding: 4px 3px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 3px 8px rgba(0, 0, 0, 0.2),
+    inset 1px 0 0 rgba(255, 255, 255, 0.18);
+}
+
+.bm-group-head .cover-title,
+.bm-group-head .cover-author {
+  display: none;
+}
+
+.bm-group-text {
+  min-width: 0;
+}
+
+.bm-book {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bm-book-sub {
+  margin: 1px 0 0;
+  font-size: 13px;
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* --- Rows -------------------------------------------------------------------- */
+
+.bm-text {
+  margin: 0;
+  font: 17px/1.35 var(--font-serif);
+  color: var(--fg);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.bm-text--word {
+  font-family: var(--font-ui);
+  font-size: 17px;
+}
+
+.bm-article {
+  font-weight: 500;
+}
+
+.bm-lemma {
+  font-family: var(--font-serif);
+  font-weight: 600;
+}
+
+.bm-gloss {
+  color: var(--fg-2);
+}
+
+.bm-gloss--none {
+  font-style: italic;
+}
+
+.bm-sub {
+  margin: 4px 0 0;
+  font-size: 15px;
+  line-height: 1.35;
+  color: var(--fg-2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.bm-meta {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Swipe-to-delete rows (ui/SwipeRow.tsx) -------------------------------------- */
+
+.swipe {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.swipe + .swipe::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  right: 0;
+  top: 0;
+  border-top: 0.5px solid var(--separator);
+  z-index: 1;
+}
+
+.swipe-content {
+  position: relative;
+  padding: 11px 16px 12px;
+  background: var(--bg);
+  cursor: pointer;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 220ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  outline-offset: -2px;
+}
+
+.swipe[data-dragging] .swipe-content {
+  transition: none;
+}
+
+.swipe-content:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.swipe:not([data-open]):not([data-dragging]) .swipe-content:active {
+  background: var(--bg-elev);
+}
+
+.swipe-actions {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.swipe-delete {
+  border: 0;
+  background: #ff3b30;
+  color: #fff;
+  font: 500 17px var(--font-ui);
+  padding: 0 4px;
+  cursor: pointer;
+  text-align: center;
+  transition: width 220ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+.swipe[data-dragging] .swipe-delete {
+  transition: none;
+}
+
+.swipe-delete:active {
+  filter: brightness(0.85);
+}
+
+.swipe--deleting {
+  animation: swipe-collapse 220ms ease-in 160ms both;
+}
+
+@keyframes swipe-collapse {
+  to {
+    max-height: 0;
+    opacity: 0;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .content--bookmarks {
+    background: #000;
+  }
+
+  .swipe,
+  .swipe-content {
+    background: var(--bg-elev);
+  }
+
+  .swipe:not([data-open]):not([data-dragging]) .swipe-content:active {
+    background: #2c2c2e;
+  }
+
+  .bm-search {
+    background: var(--bg-elev);
+  }
+}
