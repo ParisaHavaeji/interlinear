@@ -301,6 +301,15 @@ a.icon-btn {
   margin: 8px 16px 20px;
 }
 
+/* A picked file in the wrong language (import/language.ts). */
+.group-footer--warn {
+  color: #ff3b30;
+}
+
+.group-footer--warn .link-btn {
+  font-weight: 600;
+}
+
 .form-error {
   color: #ff3b30;
   font-size: 15px;

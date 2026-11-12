@@ -1,7 +1,9 @@
+import type { ComponentChildren } from 'preact'
 import { useCallback, useMemo, useState } from 'preact/hooks'
 import { needsAlignment, startAlignment } from '../align/jobs.ts'
 import { isPrealignedPair } from '../align/prealigned.ts'
 import { ImportError, importFile, type ImportedText } from '../import/file.ts'
+import { guessLanguage, languageMismatch } from '../import/language.ts'
 import type { Lang } from '../import/types.ts'
 import { requestPersistentStorage } from '../pwa/register.ts'
 import { addBook } from '../store/books.ts'
@@ -39,6 +41,8 @@ interface PickedBundle {
  * preview. A `.interlinear.json` bundle exported from another device (plan.md step 14) takes
  * the place of the two files and brings its alignment along; two plain-text files with one
  * sentence per line and equal line counts are pre-aligned input and skip the aligner too.
+ * Each file's language is guessed (`import/language.ts`): two files in each other's slots get a
+ * Swap button and no Save until swapped; one file in the wrong language gets a warning.
  */
 export function AddBookSheet({ open, onClose }: Props) {
   const [picked, setPicked] = useState<Partial<Record<Lang, Picked>>>({})
@@ -105,7 +109,9 @@ export function AddBookSheet({ open, onClose }: Props) {
   const de = picked.de?.parsed ?? null
   const en = picked.en?.parsed ?? null
   const prealigned = de !== null && en !== null && isPrealignedPair(de, en)
-  const canSave = !saving && (bundle !== null ? bundle.parsed !== null : de !== null && en !== null)
+  const mismatch = useMemo(() => languageMismatch(de === null ? null : guessLanguage(de), en === null ? null : guessLanguage(en)), [de, en])
+  const swap = () => setPicked((p) => ({ de: p.en, en: p.de }))
+  const canSave = !saving && (bundle !== null ? bundle.parsed !== null : de !== null && en !== null && mismatch !== 'swapped')
 
   const save = async () => {
     if (!canSave) return
@@ -126,9 +132,23 @@ export function AddBookSheet({ open, onClose }: Props) {
     }
   }
 
-  let footer: string
+  let footer: ComponentChildren
+  let footerClass = 'group-footer'
   if (bundle !== null) footer = 'A bundle holds both texts and their alignment, so the book is ready to read at once.'
-  else if (prealigned) footer = `Both files have one sentence per line and ${de.paragraphs.length.toLocaleString()} lines: they will be matched line by line, without alignment.`
+  else if (mismatch === 'swapped') {
+    footerClass += ' group-footer--warn'
+    footer = (
+      <>
+        These files look the other way round: the German one is English and the English one German.{' '}
+        <button type="button" class="link-btn" onClick={swap}>
+          Swap them
+        </button>
+      </>
+    )
+  } else if (mismatch !== null) {
+    footerClass += ' group-footer--warn'
+    footer = `The ${LABELS[mismatch]} file looks like ${mismatch === 'de' ? 'English' : 'German'}. Check it is the right one before adding.`
+  } else if (prealigned) footer = `Both files have one sentence per line and ${de.paragraphs.length.toLocaleString()} lines: they will be matched line by line, without alignment.`
   else footer = 'Plain text (.txt) or EPUB. Chapters and sentences are matched after import.'
 
   return (
@@ -166,7 +186,9 @@ export function AddBookSheet({ open, onClose }: Props) {
           (['de', 'en'] as Lang[]).map((lang) => <FileRow key={lang} lang={lang} picked={picked[lang]} onChange={onPick(lang)} />)
         )}
       </div>
-      <p class="group-footer">{footer}</p>
+      <p class={footerClass} role={mismatch === null ? undefined : 'alert'}>
+        {footer}
+      </p>
 
       {bundle === null && (
         <>
