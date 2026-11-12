@@ -8,7 +8,11 @@ import { Settings } from './app/Settings.tsx'
 import { dictStateShort } from './dict/download.ts'
 import { useDictState } from './dict/installer.ts'
 import { isStandalone } from './pwa/register'
-import { Reader } from './reader/Reader.tsx'
+
+// The Reader (Phase 3) is the largest screen, and most of the dictionary and aligner code the main
+// thread holds: it loads as its own chunk when a book is opened, so the Library paints from a
+// smaller shell (plan.md step 32). The service worker precaches the chunk at install.
+const Reader = lazy(() => import('./reader/Reader.tsx').then((m) => m.Reader))
 
 // Development only: the alignment debug view of plan.md step 13, at #/debug/<bookId>. The
 // import is lazy and behind `import.meta.env.DEV`, so production bundles never include it.
@@ -74,23 +78,25 @@ export function App() {
 
   if (route.screen === 'read') {
     return (
-      <Reader
-        bookId={route.bookId}
-        chapter={route.chapter}
-        at={route.at}
-        onBack={toLibrary}
-        onChapter={(chapter) => {
-          location.hash = readHash(route.bookId, chapter)
-        }}
-        onBookmarks={(chapter) => {
-          location.hash = bookmarksHash({ id: route.bookId, chapter })
-        }}
-        onArrive={(chapter) => {
-          // The bookmark has been opened: the route now says only where the reader is, so a
-          // reload or a change to the book's bookmarks does not open it again.
-          location.replace(readHash(route.bookId, chapter))
-        }}
-      />
+      <Suspense fallback={null}>
+        <Reader
+          bookId={route.bookId}
+          chapter={route.chapter}
+          at={route.at}
+          onBack={toLibrary}
+          onChapter={(chapter) => {
+            location.hash = readHash(route.bookId, chapter)
+          }}
+          onBookmarks={(chapter) => {
+            location.hash = bookmarksHash({ id: route.bookId, chapter })
+          }}
+          onArrive={(chapter) => {
+            // The bookmark has been opened: the route now says only where the reader is, so a
+            // reload or a change to the book's bookmarks does not open it again.
+            location.replace(readHash(route.bookId, chapter))
+          }}
+        />
+      </Suspense>
     )
   }
 

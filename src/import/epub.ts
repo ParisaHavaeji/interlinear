@@ -4,7 +4,7 @@
  * Works for EPUB 2 (NCX navigation) and EPUB 3 (nav document).
  */
 
-import JSZip from 'jszip'
+import type JSZip from 'jszip'
 import { htmlToBlocks, parseElements, type Block } from './markup.ts'
 import { assignKinds, countWords, isBodySection, splitHeading } from './sections.ts'
 import type { EpubBook, Paragraph, Section } from './types.ts'
@@ -20,9 +20,12 @@ export class EpubError extends Error {
 /** Parse an EPUB from a File / Blob or its bytes. */
 export async function parseEpub(data: Blob | ArrayBuffer | Uint8Array): Promise<EpubBook> {
   const bytes = data instanceof Blob ? await data.arrayBuffer() : data
+  // JSZip (about 100 KB) is loaded the first time an EPUB is opened, so it stays out of the app
+  // shell's main chunk (plan.md step 32); the service worker precaches it all the same.
+  const { default: Zip } = await import('jszip')
   let zip: JSZip
   try {
-    zip = await JSZip.loadAsync(bytes)
+    zip = await Zip.loadAsync(bytes)
   } catch (e) {
     throw new EpubError(`Not a zip archive: ${(e as Error).message}`)
   }

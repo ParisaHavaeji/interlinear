@@ -32,9 +32,32 @@ let run: Promise<void> | null = null
 let controller: AbortController | null = null
 let listening = false
 
+/** How often, at most, listeners hear about download progress alone (see {@link setProgress}). */
+const PROGRESS_NOTIFY_MS = 250
+let progressTimer: ReturnType<typeof setTimeout> | null = null
+
+function notify(): void {
+  if (progressTimer !== null) {
+    clearTimeout(progressTimer)
+    progressTimer = null
+  }
+  for (const fn of listeners) fn(state)
+}
+
 function set(patch: Partial<DictState>): void {
   state = { ...state, ...patch }
-  for (const fn of listeners) fn(state)
+  notify()
+}
+
+/**
+ * Progress alone: the state is current at once for {@link getDictState}, but listeners hear of
+ * it at most every {@link PROGRESS_NOTIFY_MS}. The dictionary is some 560 shards, and the hook
+ * re-renders the whole app, so one render per shard was most of the main thread's work on a
+ * first launch (step 32). A phase change through {@link set} flushes at once.
+ */
+function setProgress(progress: DictState['progress']): void {
+  state = { ...state, progress }
+  if (progressTimer === null) progressTimer = setTimeout(notify, PROGRESS_NOTIFY_MS)
 }
 
 /** The dictionary's state right now. */
@@ -162,7 +185,7 @@ async function install(): Promise<void> {
   try {
     progress = await downloadShards(store.index.shards, cached, (key) => current.cacheShard(key), {
       signal: controller.signal,
-      onProgress: (p) => set({ progress: p }),
+      onProgress: setProgress,
     })
     set({ phase: 'ready', progress, error: null })
   } catch (err) {

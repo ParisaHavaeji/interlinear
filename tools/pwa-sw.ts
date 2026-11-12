@@ -18,23 +18,28 @@ export interface OutputFile {
   isEntry?: boolean
   /** Chunks only: file names of the chunks this one imports statically. */
   imports?: readonly string[]
+  /** Chunks only: file names of the chunks this one imports with `import()`. */
+  dynamicImports?: readonly string[]
 }
 
 /**
  * The files of the build that make up the app shell: every chunk reachable from an entry chunk
- * through static imports, plus every asset. Chunks reached only through `import()` are left
- * out: they are loaded on demand (the language model of plan.md step 15, the dev-only debug
- * view) and the service worker caches them when they are first fetched instead of making
- * every install download them.
+ * through static or dynamic imports, plus every asset. The walk stops at a chunk
+ * {@link isPrecachable} rules out, so the language model of plan.md step 15 and whatever only it
+ * imports stay out: those are loaded on demand and the service worker caches them when they are
+ * first fetched instead of making every install download them. Every other lazily imported
+ * chunk (the Reader, JSZip; step 32) is part of the shell, so a book opens and an EPUB imports
+ * offline from the first launch on.
  */
 export function shellFiles(bundle: Record<string, OutputFile>): string[] {
   const shell = new Set<string>()
   const visit = (file: string): void => {
     if (shell.has(file)) return
     const out = bundle[file]
-    if (out === undefined || out.type !== 'chunk') return
+    if (out === undefined || out.type !== 'chunk' || !isPrecachable(file)) return
     shell.add(file)
     for (const dep of out.imports ?? []) visit(dep)
+    for (const dep of out.dynamicImports ?? []) visit(dep)
   }
   for (const [file, out] of Object.entries(bundle)) if (out.type === 'chunk' && out.isEntry) visit(file)
   for (const [file, out] of Object.entries(bundle)) if (out.type === 'asset') shell.add(file)

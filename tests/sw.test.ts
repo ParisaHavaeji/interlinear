@@ -5,11 +5,13 @@ import { isPrecachable, renderServiceWorker, shellFiles, shellPrecacheList, type
 const template = readFileSync(new URL('../src/pwa/sw.js', import.meta.url), 'utf8')
 
 describe('shell files', () => {
-  it('follows static imports from the entry and leaves lazily imported chunks out', () => {
+  it('follows static and dynamic imports from the entries and stops at the on-demand model chunks', () => {
     const bundle: Record<string, OutputFile> = {
-      'assets/index-1.js': { type: 'chunk', isEntry: true, imports: ['assets/preact-2.js'] },
+      'assets/index-1.js': { type: 'chunk', isEntry: true, imports: ['assets/preact-2.js'], dynamicImports: ['assets/Reader-8.js'] },
       'assets/preact-2.js': { type: 'chunk', imports: [] },
-      'assets/worker-3.js': { type: 'chunk', isEntry: true, imports: [] },
+      'assets/Reader-8.js': { type: 'chunk', imports: ['assets/preact-2.js'], dynamicImports: ['assets/jszip-9.js'] },
+      'assets/jszip-9.js': { type: 'chunk', imports: [] },
+      'assets/worker-3.js': { type: 'chunk', isEntry: true, imports: [], dynamicImports: ['assets/neural-model-4.js'] },
       'assets/neural-model-4.js': { type: 'chunk', imports: ['assets/transformers-5.js'] },
       'assets/transformers-5.js': { type: 'chunk', imports: [] },
       'assets/index-6.css': { type: 'asset' },
@@ -17,7 +19,15 @@ describe('shell files', () => {
     }
     const files = shellFiles(bundle)
     expect(files).toEqual(
-      expect.arrayContaining(['assets/index-1.js', 'assets/preact-2.js', 'assets/worker-3.js', 'assets/index-6.css', 'assets/ort-wasm-simd-threaded-7.wasm']),
+      expect.arrayContaining([
+        'assets/index-1.js',
+        'assets/preact-2.js',
+        'assets/Reader-8.js',
+        'assets/jszip-9.js',
+        'assets/worker-3.js',
+        'assets/index-6.css',
+        'assets/ort-wasm-simd-threaded-7.wasm',
+      ]),
     )
     expect(files).not.toContain('assets/neural-model-4.js')
     expect(files).not.toContain('assets/transformers-5.js')
