@@ -1,0 +1,132 @@
+/* The install hint banner (plan.md step 30): a frosted card fixed above the safe area, with a
+   caret towards Safari's share button in the toolbar below it on a phone. Globals in index.css. */
+
+.install-hint {
+  position: fixed;
+  left: calc(var(--safe-left) + 12px);
+  right: calc(var(--safe-right) + 12px);
+  bottom: calc(var(--safe-bottom) + 14px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 18px;
+  background: var(--sheet-bg);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18), 0 0 0 0.5px var(--separator);
+  color: var(--fg);
+  font: 15px/1.35 var(--font-ui);
+  animation: install-hint-in 420ms cubic-bezier(0.2, 0.9, 0.3, 1.05) both;
+}
+
+.install-hint.is-leaving {
+  animation: install-hint-out 220ms ease-in both;
+  pointer-events: none;
+}
+
+/* The caret under the card, towards the share button in the middle of Safari's toolbar. */
+.install-hint::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 16px;
+  height: 16px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--sheet-bg);
+  box-shadow: 1px 1px 0 0 var(--separator);
+  clip-path: polygon(0 100%, 100% 100%, 100% 0);
+}
+
+/* On an iPad the share button is in the top bar: no caret. */
+@media (min-width: 744px) {
+  .install-hint {
+    left: auto;
+    right: calc(var(--safe-right) + 20px);
+    max-width: 420px;
+  }
+
+  .install-hint::after {
+    display: none;
+  }
+}
+
+@keyframes install-hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes install-hint-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+.install-hint-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 0.5px var(--separator);
+}
+
+.install-hint-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.install-hint-title {
+  font-weight: 600;
+  margin-bottom: 1px;
+}
+
+.install-hint-body {
+  margin: 0;
+  color: var(--fg-2);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.install-hint-body strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.install-hint-share {
+  vertical-align: -3px;
+  margin-right: 2px;
+  color: var(--accent);
+}
+
+.install-hint-close {
+  flex: none;
+  align-self: flex-start;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  color: var(--fg-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.install-hint-close:active {
+  opacity: 0.6;
+}

@@ -1,12 +1,13 @@
 import { lazy, Suspense } from 'preact/compat'
 import { useEffect, useState } from 'preact/hooks'
 import { Bookmarks } from './app/Bookmarks.tsx'
+import { InstallHint } from './app/InstallHint.tsx'
 import { Library } from './app/Library.tsx'
 import { bookmarksHash, parseRoute, readHash } from './app/routes.ts'
 import { Settings } from './app/Settings.tsx'
 import { dictStateShort } from './dict/download.ts'
 import { useDictState } from './dict/installer.ts'
-import { isIOS, isStandalone } from './pwa/register'
+import { isStandalone } from './pwa/register'
 import { Reader } from './reader/Reader.tsx'
 
 // Development only: the alignment debug view of plan.md step 13, at #/debug/<bookId>. The
@@ -31,8 +32,8 @@ const toLibrary = () => {
  * App shell: hash-routed between the Library (Phase 1), the Reader (Phase 3, `#/read/<id>`,
  * which opens the book where it was last read, or `#/read/<id>/<chapter>`),
  * Settings, the bookmarks screen (step 26, `#/bookmarks`, or one book's from its Reader) and,
- * in development, the alignment debug view. The install hint and status footer from Phase 0 show
- * on the Library only.
+ * in development, the alignment debug view. The install hint (step 30) and the status footer from
+ * Phase 0 show on the Library only.
  */
 export function App() {
   const [online, setOnline] = useState(navigator.onLine)
@@ -50,7 +51,6 @@ export function App() {
     }
   }, [])
 
-  const showInstallHint = isIOS() && !standalone
   const route = parseRoute(useHash())
   const dictNote = dictStateShort(useDictState())
 
@@ -106,11 +106,7 @@ export function App() {
     <>
       <Library />
 
-      {showInstallHint && (
-        <aside class="install-hint" role="note">
-          Install: tap <strong>Share</strong> then <strong>Add to Home Screen</strong>.
-        </aside>
-      )}
+      <InstallHint />
 
       <footer class="status" aria-live="polite">
         {standalone ? 'Standalone' : 'Browser'} · {online ? 'Online' : 'Offline'}
