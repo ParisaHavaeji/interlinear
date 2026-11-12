@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "icons": "node tools/make-icons.mjs",
+    "icons": "node tools/make-icons.ts",
     "typecheck": "tsc -b",
     "fixtures": "node tools/fetch-fixtures.ts",
     "dict": "node tools/build-dict/main.ts"

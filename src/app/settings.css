@@ -27,6 +27,7 @@
 .content--settings {
   display: block;
   padding-top: 8px;
+  padding-bottom: calc(var(--safe-bottom) + 24px);
   background: light-dark(var(--bg-elev), #000);
 }
 

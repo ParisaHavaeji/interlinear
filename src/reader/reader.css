@@ -15,7 +15,8 @@
 
 /* --- Books chrome (plan.md step 17) ---------------------------------------
    Top bar and footer are fixed; both slide out of view while the reader scrolls down
-   (`.reader--chrome-hidden`, set by `useChrome`) and back on the way up. */
+   (`.reader--chrome-hidden`, set by `useChrome`) and back on the way up. A finger on either
+   never scrolls the page beneath (step 31): taps still land on the buttons. */
 
 .reader-bar {
   position: fixed;
@@ -33,6 +34,7 @@
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 0.5px solid var(--separator);
   font: 15px var(--font-ui);
+  touch-action: none;
   transition: transform 260ms cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 
@@ -101,6 +103,7 @@
   backdrop-filter: saturate(180%) blur(20px);
   font: 12px var(--font-ui);
   color: var(--fg-2);
+  touch-action: none;
   transition: transform 260ms cubic-bezier(0.2, 0.8, 0.3, 1);
 }
 

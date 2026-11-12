@@ -2,11 +2,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Plugin, ResolvedConfig } from 'vite'
 import { buildManifest } from './pwa-manifest.ts'
+import { splashLinks } from './pwa-splash.ts'
 import { renderServiceWorker, shellFiles, shellPrecacheList } from './pwa-sw.ts'
 
 /**
  * Hand-rolled PWA plugin:
  *  - serves / emits `manifest.webmanifest` built from Vite's `base`
+ *  - injects the iOS launch screen links of `tools/pwa-splash.ts` into `index.html` (step 31);
+ *    the PNGs themselves are static files under `public/splash/`, made by `npm run icons`
  *  - emits `sw.js` from `src/pwa/sw.js` with the list of built assets injected,
  *    so the service worker precaches exactly the app shell Vite produced: the statically
  *    reachable chunks and the small assets, not the lazily imported language model nor the
@@ -20,6 +23,14 @@ export function pwa(): Plugin {
 
     configResolved(c) {
       config = c
+    },
+
+    transformIndexHtml() {
+      return splashLinks(config.base).map(({ href, media }) => ({
+        tag: 'link',
+        attrs: { rel: 'apple-touch-startup-image', media, href },
+        injectTo: 'head' as const,
+      }))
     },
 
     // Dev server: the manifest is not a real file, so answer it here.

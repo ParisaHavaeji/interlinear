@@ -81,6 +81,7 @@ import { useLiveQuery } from '../store/hooks.ts'
 import { getProgress, saveProgress } from '../store/progress.ts'
 import { APPEARANCE_KEY, ARTICLE_COLOURS_KEY, setSetting, useSetting } from '../store/settings.ts'
 import { BottomCard } from '../ui/BottomCard.tsx'
+import { syncThemeColor } from '../pwa/theme-color.ts'
 import { type Appearance, appearanceStyle, metricsKey, sanitizeAppearance, themeAttribute } from './appearance.ts'
 import { AppearanceMenu } from './AppearanceMenu.tsx'
 import { BeadIndex, revealDelta, sentenceCard, stepSentence } from './card.ts'
@@ -292,8 +293,10 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     const theme = themeAttribute(appearance.theme)
     if (theme === null) delete root.dataset.theme
     else root.dataset.theme = theme
+    syncThemeColor()
     return () => {
       delete root.dataset.theme
+      syncThemeColor()
     }
   }, [appearance.theme])
 
