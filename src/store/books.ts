@@ -70,13 +70,15 @@ export function listBooks(db: InterlinearDB = sharedDb()): Promise<Book[]> {
 
 /** Remove a book and every row that hangs off it. */
 export async function deleteBook(id: string, db: InterlinearDB = sharedDb()): Promise<void> {
-  await db.transaction('rw', [db.books, db.paragraphs, db.sentences, db.beads, db.bookmarks, db.progress], async () => {
+  await db.transaction('rw', [db.books, db.paragraphs, db.sentences, db.beads, db.bookmarks, db.progress, db.sync], async () => {
     await db.books.delete(id)
     await db.paragraphs.where('bookId').equals(id).delete()
     await db.sentences.where('bookId').equals(id).delete()
     await db.beads.where('bookId').equals(id).delete()
     await db.bookmarks.where('bookId').equals(id).delete()
     await db.progress.delete(id)
+    // The synced state stays on the server for a later import of the same book (step 36).
+    await db.sync.delete(id)
   })
 }
 

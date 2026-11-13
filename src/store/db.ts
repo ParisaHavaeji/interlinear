@@ -84,6 +84,11 @@ export interface Book {
    * sections included or excluded, chapters paired by hand. Applied on every alignment run.
    */
   chapterEdits?: ChapterEdits
+  /**
+   * The content key (step 36): the hash of both texts, `sync/key.ts`. Set the first time the
+   * sync needs it; missing on books imported before, and on books that were never synced.
+   */
+  key?: string
 }
 
 export interface ParagraphRow {
@@ -147,6 +152,19 @@ export interface SettingRow {
   value: unknown
 }
 
+/**
+ * Where a book's reading state stands against the server (step 36, `sync/engine.ts`): when it
+ * last changed here, and the change the server is known to hold. `changed > pushed` is a row
+ * waiting to be pushed. A book with no row has never been read here.
+ */
+export interface SyncRow {
+  bookId: string
+  /** Unix ms of the last local change to the book's progress or bookmarks. */
+  changed: number
+  /** The `changed` value the server holds, after a push or a pull; 0 for none. */
+  pushed: number
+}
+
 export type InterlinearDB = Dexie & {
   books: EntityTable<Book, 'id'>
   paragraphs: Table<ParagraphRow, [string, Lang, number]>
@@ -155,6 +173,7 @@ export type InterlinearDB = Dexie & {
   bookmarks: EntityTable<BookmarkRow, 'id'>
   progress: EntityTable<ProgressRow, 'bookId'>
   settings: EntityTable<SettingRow, 'key'>
+  sync: EntityTable<SyncRow, 'bookId'>
 }
 
 /** Create (or open) the database. Tests pass their own name to get a fresh store each time. */
@@ -168,6 +187,10 @@ export function openDatabase(name: string = DB_NAME): InterlinearDB {
     bookmarks: 'id, bookId, [bookId+type], created',
     progress: 'bookId',
     settings: 'key',
+  })
+  // Step 36: the sync table. Additive, so the other stores are inherited from version 1.
+  db.version(2).stores({
+    sync: 'bookId',
   })
   return db
 }

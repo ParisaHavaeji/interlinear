@@ -76,6 +76,72 @@
   transition: width 200ms ease-out;
 }
 
+/* --- Account (plan.md step 36) -------------------------------------------
+   A row that is an action, as iOS draws them: accent text, no chrome; the account row with the
+   picture, name and address. */
+
+.row--action {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: center;
+  font: 400 17px var(--font-ui);
+  color: var(--accent);
+}
+
+.row--action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.row--action-destructive {
+  color: #ff3b30;
+}
+
+.row--account {
+  grid-template-columns: 36px 1fr auto;
+}
+
+.row--account .row-detail {
+  text-align: right;
+  white-space: normal;
+}
+
+.row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.row-text .row-label,
+.row-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-sub {
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 18px;
+  object-fit: cover;
+  background: var(--bg-elev);
+}
+
+.avatar--initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 16px var(--font-ui);
+  color: var(--fg-2);
+}
+
 /* --- Article colours (plan.md step 24) ----------------------------------
    One row per article, its label in the chosen colour, the swatches to pick from on the right. */
 

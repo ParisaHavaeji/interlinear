@@ -8,6 +8,7 @@
 
 import { newId } from '../store/books.ts'
 import { db as sharedDb, type BookmarkRow, type InterlinearDB } from '../store/db.ts'
+import { markChanged } from '../store/sync.ts'
 import type { BookmarkEntry } from './model.ts'
 
 /** A book's bookmarks, oldest first. */
@@ -18,10 +19,18 @@ export function listBookmarks(bookId: string, db: InterlinearDB = sharedDb()): P
 /** Store a bookmark and return the row. */
 export async function addBookmark(bookId: string, entry: BookmarkEntry, db: InterlinearDB = sharedDb()): Promise<BookmarkRow> {
   const row: BookmarkRow = { id: newId(), bookId, note: '', created: Date.now(), ...entry }
-  await db.bookmarks.add(row)
+  await db.transaction('rw', [db.bookmarks, db.sync], async () => {
+    await db.bookmarks.add(row)
+    await markChanged(bookId, row.created, db)
+  })
   return row
 }
 
 export async function removeBookmark(id: string, db: InterlinearDB = sharedDb()): Promise<void> {
-  await db.bookmarks.delete(id)
+  await db.transaction('rw', [db.bookmarks, db.sync], async () => {
+    const row = await db.bookmarks.get(id)
+    if (row === undefined) return
+    await db.bookmarks.delete(id)
+    await markChanged(row.bookId, Date.now(), db)
+  })
 }

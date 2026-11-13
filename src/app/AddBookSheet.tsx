@@ -7,6 +7,7 @@ import { guessLanguage, languageMismatch } from '../import/language.ts'
 import type { Lang } from '../import/types.ts'
 import { requestPersistentStorage } from '../pwa/register.ts'
 import { addBook } from '../store/books.ts'
+import { syncActive, syncNow } from '../sync/browser.ts'
 import { BundleError, importBundle, parseBundle, type Bundle } from '../store/bundle.ts'
 import { BottomSheet } from '../ui/BottomSheet.tsx'
 import { Cover } from '../ui/Cover.tsx'
@@ -123,6 +124,8 @@ export function AddBookSheet({ open, onClose }: Props) {
       // Alignment runs in the background; the cover shows its progress. A bundle brings its
       // alignment along, and pre-aligned text is beaded line by line inside the queue.
       if (needsAlignment(book)) void startAlignment(book.id)
+      // The same book read on another device has its place on the server (step 36).
+      if (syncActive()) void syncNow()
       reset()
       onClose()
     } catch (err) {
