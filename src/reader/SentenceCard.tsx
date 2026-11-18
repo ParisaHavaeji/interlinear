@@ -3,7 +3,8 @@
  * Previous / Next arrows in the fixed header, then the English sentence(s) of the tapped bead in
  * the reading font, a note with the neighbouring English sentences when the match is uncertain
  * or missing, and the actions (Bookmark, which saves or removes the bead's bookmark (step 25)
- * and shows filled while one exists; Copy; and a "…" button whose menu holds Fix alignment,
+ * and shows filled while one exists; Copy; Listen, which reads the original sentence aloud
+ * (`Listen.tsx`); and a "…" button whose menu holds Fix alignment,
  * which switches the card to the repair mode of step 20: the only way there, so the repair
  * never comes up unasked). The Reader owns the highlight, the stepping and the bookmarks; this
  * component only draws what `reader/card.ts` worked out.
@@ -12,6 +13,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import type { Lang } from '../import/types.ts'
 import type { SentenceCard as Model } from './card.ts'
+import { ListenAction } from './Listen.tsx'
 
 interface Props {
   card: Model
@@ -19,6 +21,9 @@ interface Props {
   heading: string
   /** Language of the translation, for `lang` attributes. */
   lang: Lang
+  /** The original sentence(s) on the card, for reading aloud, and their language. */
+  original: string
+  originalLang: Lang
   /** Text of an English sentence by id; undefined when it is gone. */
   text: (idx: number) => string | undefined
   /** Step to the previous or next sentence; absent at the ends of the chapter. */
@@ -52,7 +57,17 @@ export function SentenceCardHeader({ heading, onPrev, onNext }: Pick<Props, 'hea
   )
 }
 
-export function SentenceCardBody({ card, lang, text, onCopy, bookmarked, onBookmark, onFix }: Pick<Props, 'card' | 'lang' | 'text' | 'onCopy' | 'bookmarked' | 'onBookmark' | 'onFix'>) {
+export function SentenceCardBody({
+  card,
+  lang,
+  original,
+  originalLang,
+  text,
+  onCopy,
+  bookmarked,
+  onBookmark,
+  onFix,
+}: Pick<Props, 'card' | 'lang' | 'original' | 'originalLang' | 'text' | 'onCopy' | 'bookmarked' | 'onBookmark' | 'onFix'>) {
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -110,6 +125,7 @@ export function SentenceCardBody({ card, lang, text, onCopy, bookmarked, onBookm
           </svg>
           {copied ? 'Copied' : 'Copy'}
         </button>
+        <ListenAction text={original} lang={originalLang} />
         {onFix !== undefined && (
           <button
             type="button"

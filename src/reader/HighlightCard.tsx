@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { HIGHLIGHT_COLOURS, type HighlightColour } from '../bookmarks/highlights.ts'
 import type { Lang } from '../import/types.ts'
+import { ListenAction } from './Listen.tsx'
 
 interface Props {
   /** The highlighted (or selected) text. */
@@ -123,6 +124,7 @@ export function HighlightCardBody({ text, lang, colour, note, saved, onColour, o
           </svg>
           {copied ? 'Copied' : 'Copy'}
         </button>
+        <ListenAction text={text} lang={lang} />
         {saved && (
           <button type="button" class="card-action card-action--danger" onClick={onRemove}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">

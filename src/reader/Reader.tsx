@@ -1041,6 +1041,8 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
           <SentenceCardBody
             card={card}
             lang={data.otherLang}
+            original={card.highlight.map((i) => data.text.get(i) ?? '').join(' ')}
+            originalLang={data.lang}
             text={(i) => data.otherText.get(i)}
             onCopy={copy}
             bookmarked={sentenceMark !== undefined}

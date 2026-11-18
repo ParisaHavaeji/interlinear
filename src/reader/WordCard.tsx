@@ -6,13 +6,14 @@
  * line alternatives the reader can switch to, the sentence the word came from with the word
  * marked and a link to its translation (the sentence card of step 19), and the actions
  * (Bookmark, which saves or removes the word's bookmark (step 25) once the lookup has answered,
- * and shows filled while one exists; Copy). A word the dictionary lacks gets a plain "No entry"
+ * and shows filled while one exists; Copy; Listen, which says the word aloud). A word the dictionary lacks gets a plain "No entry"
  * with the dictionary's state when that explains it. The Reader owns the lookup, the bookmarks
  * and the state; this component draws a {@link WordCardView} from `reader/word.ts`.
  */
 
 import { useEffect, useState } from 'preact/hooks'
 import type { Lang } from '../import/types.ts'
+import { ListenAction } from './Listen.tsx'
 import { BookmarkAction } from './SentenceCard.tsx'
 import { articleColour, type Article, type ArticleColours, type WordCardView, type WordRef } from './word.ts'
 
@@ -165,6 +166,7 @@ export function WordCardBody({ word, view, error, dictHint, colours, lang, sente
           </svg>
           {copied ? 'Copied' : 'Copy'}
         </button>
+        <ListenAction text={word.token} lang={lang} />
       </div>
     </>
   )
