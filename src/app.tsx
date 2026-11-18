@@ -5,9 +5,6 @@ import { InstallHint } from './app/InstallHint.tsx'
 import { Library } from './app/Library.tsx'
 import { bookmarksHash, parseRoute, readHash } from './app/routes.ts'
 import { Settings } from './app/Settings.tsx'
-import { dictStateShort } from './dict/download.ts'
-import { useDictState } from './dict/installer.ts'
-import { isStandalone } from './pwa/register'
 
 // The Reader (Phase 3) is the largest screen, and most of the dictionary and aligner code the main
 // thread holds: it loads as its own chunk when a book is opened, so the Library paints from a
@@ -36,27 +33,10 @@ const toLibrary = () => {
  * App shell: hash-routed between the Library (Phase 1), the Reader (Phase 3, `#/read/<id>`,
  * which opens the book where it was last read, or `#/read/<id>/<chapter>`),
  * Settings, the bookmarks screen (step 26, `#/bookmarks`, or one book's from its Reader) and,
- * in development, the alignment debug view. The install hint (step 30) and the status footer from
- * Phase 0 show on the Library only.
+ * in development, the alignment debug view. The install hint (step 30) shows on the Library only.
  */
 export function App() {
-  const [online, setOnline] = useState(navigator.onLine)
-  const [standalone, setStandalone] = useState(false)
-
-  useEffect(() => {
-    setStandalone(isStandalone())
-    const up = () => setOnline(true)
-    const down = () => setOnline(false)
-    window.addEventListener('online', up)
-    window.addEventListener('offline', down)
-    return () => {
-      window.removeEventListener('online', up)
-      window.removeEventListener('offline', down)
-    }
-  }, [])
-
   const route = parseRoute(useHash())
-  const dictNote = dictStateShort(useDictState())
 
   if (route.screen === 'settings') return <Settings onBack={toLibrary} />
 
@@ -85,7 +65,9 @@ export function App() {
           at={route.at}
           onBack={toLibrary}
           onChapter={(chapter) => {
-            location.hash = readHash(route.bookId, chapter)
+            // The chapter on screen changed as the book scrolled: the address follows without a
+            // history entry (and without a hashchange), so a reload opens the book where it is.
+            history.replaceState(history.state, '', readHash(route.bookId, chapter))
           }}
           onBookmarks={(chapter) => {
             location.hash = bookmarksHash({ id: route.bookId, chapter })
@@ -113,11 +95,6 @@ export function App() {
       <Library />
 
       <InstallHint />
-
-      <footer class="status" aria-live="polite">
-        {standalone ? 'Standalone' : 'Browser'} · {online ? 'Online' : 'Offline'}
-        {dictNote !== '' && ` · ${dictNote}`}
-      </footer>
     </>
   )
 }

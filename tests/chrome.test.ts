@@ -1,6 +1,6 @@
 // The Books chrome's arithmetic (plan.md step 17): hide on scroll down, show on scroll up, pages left.
 import { describe, expect, it } from 'vitest'
-import { chromeAfterScroll, pagesLeftLabel, readingPosition, SHOWN } from '../src/reader/chrome.ts'
+import { chromeAfterScroll, readingPosition, SHOWN } from '../src/reader/chrome.ts'
 
 describe('chromeAfterScroll', () => {
   const scroll = (ys: number[]) => ys.reduce((s, y) => chromeAfterScroll(s, y), SHOWN)
@@ -43,11 +43,5 @@ describe('readingPosition', () => {
     expect(readingPosition(0, 500, 800)).toEqual({ fraction: 1, pagesLeft: 0 })
     expect(readingPosition(-20, 3000, 800)).toEqual({ fraction: 0, pagesLeft: 3 })
     expect(readingPosition(9999, 3000, 800)).toEqual({ fraction: 1, pagesLeft: 0 })
-  })
-
-  it('words the footer', () => {
-    expect(pagesLeftLabel(0)).toBe('Last page in this chapter')
-    expect(pagesLeftLabel(1)).toBe('1 page left in this chapter')
-    expect(pagesLeftLabel(12)).toBe('12 pages left in this chapter')
   })
 })

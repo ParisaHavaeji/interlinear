@@ -1,26 +1,29 @@
 /**
- * Reader screen (plan.md step 16): one chapter of the original text at a time, rendered as
+ * Reader screen (plan.md step 16): the original text of the whole book as one scrolling page,
+ * chapter after chapter under their headings (`reader/flow.ts`), rendered as
  * paragraphs → sentences → words. Every sentence the splitter found is a `<span class="sent">`
  * carrying its book-wide index, every word inside it a `<span class="w">`; punctuation and
  * whitespace stay as plain text between them, so the page shows exactly the imported text
  * (`reader/tokenize.ts`). Step 24 hangs the word tap on the word spans.
  *
- * Long chapters are windowed (`reader/virtual.ts`): only the paragraphs within a screen of the
+ * The page is windowed (`reader/virtual.ts`): only the paragraphs within a screen of the
  * viewport are in the DOM, with spacers standing in for the rest. Heights are estimated from
  * paragraph length until a paragraph has been rendered once and measured; a measurement above
  * the viewport scrolls the window by the difference so the visible text does not move.
  *
- * Reached at `#/read/<bookId>[/<chapter>]`. The Books chrome of step 17 (`ReaderChrome.tsx`)
- * frames the page: a top bar that slides away as the reader scrolls down, a footer with the
- * chapter's progress line, and the chapter list sheet (`ChaptersSheet.tsx`), which also holds
- * the chapter-mapping corrections of plan §1.1b. A book that is not aligned yet still opens:
+ * Reached at `#/read/<bookId>[/<chapter>]`: the chapter is where the book opens, and the route
+ * follows the chapter on screen as the page scrolls. The Books chrome of step 17
+ * (`ReaderChrome.tsx`) frames the page: a top bar that slides away as the reader scrolls down, a
+ * footer with the book's progress line and the chapter on screen, and the chapter list sheet
+ * (`ChaptersSheet.tsx`), which scrolls to the chapter picked and also holds the
+ * chapter-mapping corrections of plan §1.1b. A book that is not aligned yet still opens:
  * its paragraphs render without sentence spans, as one chapter, and the live query swaps the
  * real chapters and sentences in when the alignment lands.
  *
  * Tapping a sentence (step 19, §1.5) gives its bead Books' soft highlight and opens the bottom
  * card of step 18 (`ui/BottomCard.tsx`) in sentence mode (`SentenceCard.tsx`): the English side
  * of the bead, the chapter name, Previous / Next arrows that move the highlight through the
- * chapter without closing the card (also ← / → on a keyboard), Copy, and for an uncertain or
+ * book without closing the card (also ← / → on a keyboard), Copy, and for an uncertain or
  * missing match the neighbouring English sentences. The page scrolls just enough to keep the
  * highlighted sentence between the top bar and the card; sentences of uncertain beads carry a
  * dotted underline. The model behind all this is `reader/card.ts`.
@@ -89,6 +92,7 @@ import { type Appearance, appearanceStyle, metricsKey, sanitizeAppearance, theme
 import { AppearanceMenu } from './AppearanceMenu.tsx'
 import { BeadIndex, revealDelta, sentenceCard, stepSentence } from './card.ts'
 import { ChaptersSheet } from './ChaptersSheet.tsx'
+import { chapterAt, flowOf, flowPosition } from './flow.ts'
 import { bookFraction, samePlace, type ReadingPlace } from './progress.ts'
 import { ReaderBar, ReaderFooter, useChrome } from './ReaderChrome.tsx'
 import { RepairCardBody, RepairCardHeader } from './RepairCard.tsx'
@@ -101,16 +105,26 @@ import './reader.css'
 
 interface Props {
   bookId: string
-  /** 0-based chapter position, clamped to the book; null opens the chapter the book was last read at (step 29). */
+  /** 0-based chapter position to open at, clamped to the book; null opens the book where it was last read (step 29). */
   chapter: number | null
   /** Id of a bookmark to open at (step 26); the chapter shown is the bookmark's when they differ. */
   at?: string
   onBack: () => void
+  /** Another chapter is at the top of the screen: the route can follow. */
   onChapter: (chapter: number) => void
   /** Open the book's bookmarks, from the chapter on screen. */
   onBookmarks: (chapter: number) => void
   /** The bookmark `at` has been opened (or could not be found): the route can drop it, keeping `chapter`. */
   onArrive: (chapter: number) => void
+}
+
+/** A place the page is asked to scroll to once: `key` tells one from the next. */
+interface Target {
+  key: string
+  chapter: number
+  /** Position of the paragraph within the chapter. */
+  para: number
+  fraction: number
 }
 
 /** A bookmark's place as the page needs it (step 26): the chapter and the paragraph within it, the sentence and perhaps the word. */
@@ -224,6 +238,14 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   }, [bookId])
 
   const chapters = useMemo(() => (data == null ? null : chaptersFor(data)), [data])
+  /** The page: every chapter's paragraphs in reading order, and where each chapter starts among them. */
+  const flow = useMemo(() => (data == null || chapters === null ? null : flowOf(data.paragraphs, chapters)), [data, chapters])
+  /** Chapter headings by the position in the flow of the paragraph they stand above. */
+  const headings = useMemo(() => {
+    const map = new Map<number, string>()
+    if (data != null && chapters !== null && flow !== null) chapters.forEach((_, i) => map.set(flow.starts[i], headingOf(chapters, i, data.book.title)))
+    return map
+  }, [data, chapters, flow])
 
   // The bookmark the route asks to open at (step 26), placed in the text as it is now. Null
   // while the book or the bookmarks are still loading, and once it is gone or cannot be found.
@@ -245,25 +267,56 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     if (at !== undefined && jump === null && data != null && bookmarkRows !== undefined) onArrive(Math.min(Math.max(0, chapter ?? 0), (chapters?.length ?? 1) - 1))
   }, [at, jump, data, bookmarkRows])
 
-  const idx = chapters === null ? 0 : jump !== null ? jump.chapter : Math.min(Math.max(0, chapter ?? resume?.chapter ?? 0), chapters.length - 1)
+  /** The chapter at the top of the screen, as the body last reported it; null until it has. */
+  const [visible, setVisible] = useState<number | null>(null)
+  const idx = chapters === null ? 0 : Math.min(Math.max(0, visible ?? jump?.chapter ?? chapter ?? resume?.chapter ?? 0), chapters.length - 1)
   const current = chapters?.[idx]
 
-  // The place to scroll back to (step 29): the stored one, when the book opens where it was
-  // last read or at that very chapter, and not at a bookmark. Once per opening.
-  const restore = useMemo(() => {
-    if (restored || at !== undefined || resume == null || chapters === null) return null
-    if ((chapter !== null && chapter !== resume.chapter) || resume.chapter !== idx) return null
-    return { key: `resume/${bookId}`, para: resume.para, fraction: resume.fraction }
-  }, [restored, at, resume, chapters, chapter, idx, bookId])
+  // Where the book opens, when not at a bookmark (step 29): the place it was last read, when the
+  // route names no chapter or that very one; else the top of the chapter the route names. Once
+  // per opening; null for the top of the book.
+  const opening = useMemo<Target | null>(() => {
+    if (restored || at !== undefined || resume === undefined || chapters === null) return null
+    if (resume !== null && (chapter === null || chapter === resume.chapter)) return { key: `resume/${bookId}`, chapter: resume.chapter, para: resume.para, fraction: resume.fraction }
+    if (chapter !== null && chapter > 0) return { key: `open/${bookId}`, chapter, para: 0, fraction: 0 }
+    return null
+  }, [restored, at, resume, chapters, chapter, bookId])
 
-  // A new chapter starts at its top. Before paint, so the old scroll position never shows. A
-  // chapter opened at a bookmark, or where the book was last read, is scrolled by the body.
+  // A book that opens at its top has nowhere to scroll to: it is in place at once.
+  useEffect(() => {
+    if (!restored && at === undefined && resume !== undefined && chapters !== null && opening === null) setRestored(true)
+  }, [restored, at, resume, chapters, opening])
+
+  /** A chapter picked from the contents (or named by the route) after the book opened: scroll to its top. */
+  const [go, setGo] = useState<Target | null>(null)
+  const goCount = useRef(0)
+  const goToChapter = (n: number) => {
+    setActive(null)
+    setGo({ key: `go/${++goCount.current}`, chapter: n, para: 0, fraction: 0 })
+  }
+  useEffect(() => {
+    setGo(null)
+    setVisible(null)
+  }, [bookId])
+
+  // The route follows the chapter on screen (see `onChapter`), without this component hearing
+  // of it. A route that names another chapter than the one on screen was changed from outside
+  // (the address bar, the history): go there.
+  useEffect(() => {
+    if (restored && at === undefined && chapter !== null && chapters !== null && chapter !== idx && chapter < chapters.length) goToChapter(chapter)
+  }, [chapter])
+  useEffect(() => {
+    if (restored && at === undefined && visible !== null) onChapter(visible)
+  }, [visible, restored])
+
+  // A book starts at its top. Before paint, so the old scroll position never shows. A book
+  // opened at a bookmark, at a chapter or where it was last read is scrolled by the body.
   useLayoutEffect(() => {
-    if (jump === null && restore === null) window.scrollTo(0, 0)
-  }, [bookId, idx])
+    if (jump === null && opening === null) window.scrollTo(0, 0)
+  }, [bookId])
 
   const pageRef = useRef<HTMLDivElement>(null)
-  const chrome = useChrome(`${bookId}/${idx}`, pageRef)
+  const chrome = useChrome(`${bookId}/${data != null}`, pageRef)
   const [contents, setContents] = useState(false)
   /** The tapped sentence, by book-wide index; null while the card is closed. */
   const [active, setActive] = useState<number | null>(null)
@@ -306,18 +359,18 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     }
   }, [appearance.theme])
 
-  // A chapter change closes the card; so does a re-alignment that dropped the sentence. Not
-  // while a jump is pending: its arrival may have opened the card in this very commit (the
-  // body's effect runs before this one), and the chapter it changed to is the bookmark's.
+  // Another book closes the card; so does a re-alignment that dropped the sentence. Not while a
+  // jump is pending: its arrival may have opened the card in this very commit (the body's
+  // effect runs before this one).
   useEffect(() => {
     if (jump !== null) return
     setActive(null)
     setRepairing(false)
     setWord(null)
-  }, [bookId, idx])
+  }, [bookId])
 
   // The page has scrolled to the bookmark (step 26): open the card on its sentence or word. Or
-  // back to the place the book was last read (step 29): saving may begin.
+  // to the place the book opens at (step 29). Either way the book is in place: saving may begin.
   const arrive = (found: boolean) => {
     if (jump !== null) {
       if (found) {
@@ -325,14 +378,17 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
         setRepairing(false)
         setWord(jump.word === undefined ? null : { sentence: jump.sentence, offset: jump.word.offset, token: jump.word.token })
       }
+      setVisible(jump.chapter)
+      setRestored(true)
       onArrive(jump.chapter)
-    } else if (restore !== null) setRestored(true)
+    } else if (opening !== null) setRestored(true)
   }
 
   // Saving the place (step 29): the body reports the paragraph at the top of the viewport after
   // every scroll and render; the row is written SAVE_DELAY_MS after the last change, and at once
-  // when the page is hidden or the Reader leaves. Nothing is saved while a jump or a restore is
-  // pending, since the page is not where the reader is yet.
+  // when the page is hidden or the Reader leaves. Nothing is saved while the book is still
+  // scrolling to where it opens, since the page is not where the reader is yet. The place is
+  // kept as the chapter and the paragraph within it, whatever the page's own list looks like.
   const lengths = useMemo(() => data?.paragraphs.map((p) => p.text.length) ?? [], [data])
   const pendingRow = useRef<ProgressRow | null>(null)
   const saveTimer = useRef(0)
@@ -347,13 +403,16 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     saveProgress({ ...row, updated: Date.now() }).catch((err: unknown) => console.error('could not save the reading progress', err))
   }
   const onPosition = (pos: ViewportPlace) => {
-    if (data == null || chapters === null || current === undefined || jump !== null || restore !== null) return
-    const place: ReadingPlace = { chapter: idx, para: pos.para, fraction: pos.fraction }
+    if (data == null || chapters === null || flow === null || jump !== null || opening !== null || !restored) return
+    const at = chapterAt(flow.starts, pos.para)
+    setVisible(at)
+    const place: ReadingPlace = { chapter: at, para: pos.para - flow.starts[at], fraction: pos.fraction }
     if (samePlace(place, savedPlace.current)) return
     savedPlace.current = place
-    // With the chapter's end on screen the whole chapter counts as read.
-    const read = bookFraction(chapters, lengths, pos.end ? { chapter: idx, para: current.paraCount, fraction: 0 } : place)
-    pendingRow.current = { bookId, chapter: idx, para: pos.para, fraction: pos.fraction, read, updated: 0 }
+    // With the book's end on screen the whole book counts as read.
+    const last = chapters.length - 1
+    const read = bookFraction(chapters, lengths, pos.end ? { chapter: last, para: chapters[last].paraCount, fraction: 0 } : place)
+    pendingRow.current = { bookId, chapter: place.chapter, para: place.para, fraction: place.fraction, read, updated: 0 }
     if (saveTimer.current !== 0) clearTimeout(saveTimer.current)
     saveTimer.current = window.setTimeout(flushProgress, SAVE_DELAY_MS)
   }
@@ -500,16 +559,16 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     }
   }
 
-  /** The chapter's sentence ids, ascending: what Previous / Next step through. */
+  /** The sentence ids of the page, ascending: what Previous / Next step through. */
   const chapterSentences = useMemo(() => {
-    if (data == null || current === undefined) return []
+    if (data == null || flow === null) return []
     const ids: number[] = []
-    for (let i = current.paraStart; i < current.paraStart + current.paraCount; i++) {
-      const row = data.paragraphs[i]
-      if (row !== undefined) for (const s of data.sentences.get(row.idx) ?? []) ids.push(s.idx)
-    }
+    for (const row of flow.rows) for (const s of data.sentences.get(row.idx) ?? []) ids.push(s.idx)
     return ids.sort((a, b) => a - b)
-  }, [data, current])
+  }, [data, flow])
+
+  /** Position in the flow of each paragraph, by `Paragraph.idx`: which chapter a sentence is in. */
+  const flowOfPara = useMemo(() => new Map(flow?.rows.map((row, i) => [row.idx, i] as const) ?? []), [flow])
 
   const card = data == null || active === null ? null : sentenceCard(data.beads, active)
   // In word mode the word alone is highlighted, not its bead.
@@ -548,7 +607,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   }
   const canStep = (dir: -1 | 1) => data != null && active !== null && stepSentence(data.beads, chapterSentences, active, dir) !== null
 
-  // ← / → step through the chapter while the sentence card is open.
+  // ← / → step through the book while the sentence card is open.
   useEffect(() => {
     if (active === null || word !== null) return
     const onKey = (e: KeyboardEvent) => {
@@ -597,7 +656,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
       </div>
     )
   }
-  if (data === null || chapters === null || current === undefined) {
+  if (data === null || chapters === null || flow === null || current === undefined) {
     return (
       <div class="reader" style={pageStyle}>
         <ReaderBar title="" onBack={onBack} />
@@ -608,9 +667,13 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     )
   }
 
-  const paragraphs = data.paragraphs.slice(current.paraStart, current.paraStart + current.paraCount)
   const ready = data.book.alignment?.status === 'ready'
-  const heading = current.heading ?? (chapters.length === 1 ? data.book.title : `Chapter ${idx + 1}`)
+  // The chapter the card's sentence is in (the one on screen while the card is closed): what
+  // the card names and a bookmark records.
+  const activePos = active === null ? undefined : flowOfPara.get(data.paraOf.get(active) ?? -1)
+  const cardChapter = activePos === undefined ? idx : chapterAt(flow.starts, activePos)
+  const heading = headingOf(chapters, cardChapter, data.book.title)
+  const scrollTarget = jump !== null ? { ...jump, fraction: 0 } : (opening ?? go)
 
   return (
     <div class={chrome.hidden ? 'reader reader--chrome-hidden' : 'reader'} ref={pageRef} style={pageStyle}>
@@ -633,11 +696,11 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
         onPointerUp={endPress}
         onPointerCancel={endPress}
       >
-        <h2 class="chapter-heading">{heading}</h2>
         {!ready && <p class="reader-note">This book is still being prepared. Sentences become tappable once it is aligned.</p>}
         <ChapterBody
-          key={`${bookId}/${idx}/${data.paragraphs.length}`}
-          paragraphs={paragraphs}
+          key={`${bookId}/${data.paragraphs.length}`}
+          paragraphs={flow.rows}
+          headings={headings}
           sentences={data.sentences}
           highlight={highlight}
           uncertain={uncertain}
@@ -645,27 +708,22 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
           marks={marks}
           metrics={metricsKey(appearance)}
           target={
-            jump !== null
-              ? { key: jump.key, para: jump.para, sentence: jump.sentence, fraction: 0 }
-              : restore !== null
-                ? { key: restore.key, para: restore.para, sentence: null, fraction: restore.fraction }
-                : null
+            scrollTarget === null
+              ? null
+              : {
+                  key: scrollTarget.key,
+                  para: flowPosition(flow.starts, scrollTarget.chapter, scrollTarget.para),
+                  sentence: jump !== null ? jump.sentence : null,
+                  fraction: scrollTarget.fraction,
+                }
           }
           onArrive={arrive}
           onPosition={onPosition}
         />
-        <nav class="chapter-nav" aria-label="Chapters">
-          <button type="button" disabled={idx === 0} onClick={() => onChapter(idx - 1)}>
-            ‹ Previous chapter
-          </button>
-          <button type="button" disabled={idx >= chapters.length - 1} onClick={() => onChapter(idx + 1)}>
-            Next chapter ›
-          </button>
-        </nav>
       </main>
       <ReaderFooter position={chrome.position} chapter={`${idx + 1} of ${chapters.length}`} />
       {ready && (
-        <ChaptersSheet open={contents} book={data.book} current={idx} onClose={() => setContents(false)} onChapter={onChapter} />
+        <ChaptersSheet open={contents} book={data.book} current={idx} onClose={() => setContents(false)} onChapter={goToChapter} />
       )}
       <BottomCard
         open={card !== null}
@@ -712,7 +770,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
                           .translation.map((i) => data.otherText.get(i) ?? '')
                           .filter((t) => t !== '')
                           .join(' '),
-                        { chapter: idx, heading },
+                        { chapter: cardChapter, heading },
                       ),
                     }))
                 : undefined
@@ -739,7 +797,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
             onBookmark={() =>
               saveBookmark(sentenceMark, () => ({
                 type: 'sentence',
-                payload: sentenceBookmark(card, (i) => data.text.get(i), (i) => data.otherText.get(i), { chapter: idx, heading }),
+                payload: sentenceBookmark(card, (i) => data.text.get(i), (i) => data.otherText.get(i), { chapter: cardChapter, heading }),
               }))
             }
             onFix={card.status === 'unaligned' || active === null ? undefined : () => openRepair(active)}
@@ -750,8 +808,13 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   )
 }
 
+/** What the page calls chapter `i`: its heading, "Chapter n" without one, the book's title for a book that is one chapter. */
+function headingOf(chapters: readonly ChapterMeta[], i: number, title: string): string {
+  return chapters[i]?.heading ?? (chapters.length === 1 ? title : `Chapter ${i + 1}`)
+}
+
 /**
- * The chapters to page through: the alignment's chapter list for the shown language, or, while
+ * The chapters of the page: the alignment's chapter list for the shown language, or, while
  * the book is not aligned (or has no detected chapters), the whole text as one chapter.
  */
 export function chaptersFor(data: Pick<Loaded, 'book' | 'lang' | 'paragraphs'>): ChapterMeta[] {
@@ -761,7 +824,7 @@ export function chaptersFor(data: Pick<Loaded, 'book' | 'lang' | 'paragraphs'>):
 }
 
 // ---------------------------------------------------------------------------------------------
-// Windowed chapter body
+// Windowed body: the whole book
 
 /** Paragraphs rendered before the first measurement, when the list's width is still unknown. */
 const INITIAL_PARAGRAPHS = 12
@@ -783,8 +846,14 @@ function metricsOf(el: HTMLElement): TextMetrics {
   return { charsPerLine: Math.max(10, Math.floor(width / (fontSize * AVERAGE_CHAR_EM))), lineHeight, spacing: PARAGRAPH_SPACING }
 }
 
+/** Lines of body text a chapter heading is estimated to take, margins included, before it is measured. */
+const HEADING_LINES = 5
+
 interface BodyProps {
+  /** Every paragraph of the page, chapter after chapter. */
   paragraphs: ParagraphRow[]
+  /** Chapter headings, by the position of the paragraph each stands above. */
+  headings: ReadonlyMap<number, string>
   sentences: Map<number, SentenceSpan[]>
   /** Sentences of the bead on the card, or null while it is closed. */
   highlight: ReadonlySet<number> | null
@@ -798,9 +867,10 @@ interface BodyProps {
   metrics: string
   /**
    * A place to scroll to once: a bookmark's sentence (step 26), placed under the top bar, in
-   * the paragraph at `para` (its position in the chapter); or, with no sentence, the place the
-   * book was last read (step 29), the viewport's top edge `fraction` of the way into that
-   * paragraph. `key` tells one target from the next.
+   * the paragraph at `para` (its position on the page); or, with no sentence, the place the
+   * book was last read (step 29) or the top of a chapter, the viewport's top edge `fraction` of
+   * the way into that paragraph (its chapter heading included, when it has one). `key` tells
+   * one target from the next.
    */
   target: { key: string; para: number; sentence: number | null; fraction: number } | null
   /** The target is reached (`found`), or it is not there to reach. */
@@ -809,7 +879,7 @@ interface BodyProps {
   onPosition: (place: ViewportPlace) => void
 }
 
-/** The paragraph at the top of the viewport (by position in the chapter), how far into it the viewport starts, and whether the chapter's end is on screen. */
+/** The paragraph at the top of the viewport (by position on the page), how far into it the viewport starts, and whether the book's end is on screen. */
 export interface ViewportPlace {
   para: number
   fraction: number
@@ -821,7 +891,7 @@ const JUMP_INSET = 0.15
 /** A jump that has not found its sentence after this many renders gives up. */
 const JUMP_ATTEMPTS = 6
 
-function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, marks, metrics, target, onArrive, onPosition }: BodyProps) {
+function ChapterBody({ paragraphs, headings, sentences, highlight, uncertain, word, marks, metrics, target, onArrive, onPosition }: BodyProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const topRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<HeightMap | null>(null)
@@ -848,8 +918,9 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, marks,
     const next = rangeFor(map, y, viewport, viewport * OVERSCAN_SCREENS)
     setRange((prev) => (sameRange(prev, next) ? prev : next))
     if (map.length > 0) {
-      // Above the list (the heading is still on screen) counts as the top of the chapter.
-      const para = y < 0 ? 0 : map.indexAt(y)
+      // Above the list counts as the top of the book. A pixel in, so a chapter scrolled to
+      // exactly is the one at the top however the scroll position was rounded.
+      const para = y < 0 ? 0 : map.indexAt(y + 1)
       const height = map.heightOf(para)
       const fraction = y < 0 || height <= 0 ? 0 : Math.min(1, Math.max(0, (y - map.offsetOf(para)) / height))
       positionRef.current({ para, fraction, end: rect.bottom <= viewport + 1 })
@@ -878,21 +949,21 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, marks,
       widthRef.current = width
       metricsRef.current = metrics
       const m = metricsOf(list)
-      const estimates = paragraphs.map((p) => estimateHeight(p.text.length, m))
+      const estimates = paragraphs.map((p, i) => estimateHeight(p.text.length, m) + (headings.has(i) ? HEADING_LINES * m.lineHeight : 0))
       if (old === null) mapRef.current = new HeightMap(estimates)
       else old.reset(estimates)
     }
     const map = mapRef.current!
     let shift = 0
-    for (const el of list.querySelectorAll<HTMLElement>('.para')) {
+    for (const el of list.querySelectorAll<HTMLElement>('[data-item]')) {
       const rect = el.getBoundingClientRect()
-      const delta = map.set(Number(el.dataset.idx), rect.height)
+      const delta = map.set(Number(el.dataset.item), rect.height)
       // A paragraph above the viewport that turned out taller or shorter than estimated moved
       // everything below it by `delta`; scroll along so the visible text stays put.
       if (anchor === null && delta !== 0 && rect.top < 0) shift += delta
     }
     if (anchor !== null) {
-      // The whole chapter reflowed (a font change, a rotation): give the top spacer the height
+      // The whole page reflowed (a font change, a rotation): give the top spacer the height
       // the new map says now, so the rendered paragraphs sit where the map puts them, and
       // scroll back to the anchor at the same depth into its paragraph.
       if (topRef.current !== null) topRef.current.style.height = `${map.offsetOf(range.start)}px`
@@ -932,7 +1003,7 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, marks,
         return
       }
     } else if (target.para === 0 && target.fraction === 0) {
-      // The top of the chapter, heading included.
+      // The top of the book, heading included.
       window.scrollTo(0, 0)
       done(true)
       return
@@ -976,7 +1047,9 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, marks,
   const items = []
   for (let i = range.start; i < Math.min(range.end, paragraphs.length); i++) {
     const row = paragraphs[i]
-    items.push(<Paragraph key={row.idx} pos={i} row={row} sentences={sentences.get(row.idx)} highlight={highlight} uncertain={uncertain} word={word} marks={marks} />)
+    items.push(
+      <Paragraph key={row.idx} pos={i} heading={headings.get(i)} row={row} sentences={sentences.get(row.idx)} highlight={highlight} uncertain={uncertain} word={word} marks={marks} />,
+    )
   }
   return (
     <div class="chapter-body" ref={listRef}>
@@ -991,8 +1064,10 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, marks,
 // Paragraphs, sentences, words
 
 interface ParagraphProps {
-  /** Position within the chapter (what the height map is indexed by). */
+  /** Position on the page (what the height map is indexed by). */
   pos: number
+  /** The chapter heading above the paragraph, for a chapter's first. */
+  heading: string | undefined
   row: ParagraphRow
   sentences: readonly SentenceSpan[] | undefined
   highlight: ReadonlySet<number> | null
@@ -1001,10 +1076,10 @@ interface ParagraphProps {
   marks: BookmarkMarks
 }
 
-function Paragraph({ pos, row, sentences, highlight, uncertain, word, marks }: ParagraphProps) {
+function Paragraph({ pos, heading, row, sentences, highlight, uncertain, word, marks }: ParagraphProps) {
   const runs = useMemo(() => runsOf(row.text, sentences ?? []), [row.text, sentences])
-  return (
-    <p class={pos === 0 ? 'para para--first' : 'para'} data-idx={pos} data-para={row.idx}>
+  const para = (
+    <p class={heading !== undefined ? 'para para--first' : 'para'} data-idx={pos} data-item={heading === undefined ? pos : undefined} data-para={row.idx}>
       {runs.map((run) =>
         run.sentenceIdx === null ? (
           words(run.text, null, undefined)
@@ -1015,6 +1090,14 @@ function Paragraph({ pos, row, sentences, highlight, uncertain, word, marks }: P
         ),
       )}
     </p>
+  )
+  if (heading === undefined) return para
+  // A chapter's heading and first paragraph are one item of the window, measured together.
+  return (
+    <div class={pos === 0 ? 'chapter-start chapter-start--book' : 'chapter-start'} data-item={pos}>
+      <h2 class="chapter-heading">{heading}</h2>
+      {para}
+    </div>
   )
 }
 

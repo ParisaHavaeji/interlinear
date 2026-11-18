@@ -130,10 +130,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.reader-footer-pages {
-  margin-left: auto;
-}
-
 /* --- Page ------------------------------------------------------------------ */
 
 .reader-page {
@@ -159,6 +155,17 @@
   letter-spacing: -0.01em;
   text-align: center;
   margin: 32px 0 36px;
+}
+
+/* A chapter's heading and its first paragraph: one item of the windowed body, so the heading's
+   margins must stay inside the box that is measured. Every chapter after the first starts
+   further down, where the previous one ended. */
+.chapter-start {
+  display: flow-root;
+}
+
+.chapter-start:not(.chapter-start--book) .chapter-heading {
+  margin-top: 88px;
 }
 
 .reader-note {
@@ -255,32 +262,6 @@
 
 .chapter-spacer {
   width: 100%;
-}
-
-/* --- Chapter navigation ---------------------------------------------------- */
-
-.chapter-nav {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 48px;
-  padding-top: 16px;
-  border-top: 0.5px solid var(--separator);
-  font: 500 15px var(--font-ui);
-}
-
-.chapter-nav button {
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  padding: 8px 0;
-  cursor: pointer;
-}
-
-.chapter-nav button:disabled {
-  opacity: 0.35;
-  cursor: default;
 }
 
 /* --- Chapter list sheet (plan.md step 17) ---------------------------------- */

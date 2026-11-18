@@ -1,6 +1,6 @@
 /**
  * The Books chrome's arithmetic (plan.md step 17), kept apart from the DOM so it can be tested:
- * when the top bar and footer hide and show as the page scrolls, and what the footer says.
+ * when the top bar and footer hide and show as the page scrolls, and how far the page has scrolled.
  */
 
 /** Whether the chrome is hidden, and the scroll offset the decision was last anchored to. */
@@ -37,7 +37,7 @@ export function chromeAfterScroll(state: ChromeState, y: number, options: Chrome
   return y < state.anchor ? { hidden: false, anchor: y } : state
 }
 
-/** Where the reader is in the chapter: the share scrolled, and the screens still to go. */
+/** Where the reader is in the book: the share scrolled, and the screens still to go. */
 export interface ReadingPosition {
   /** 0 at the top, 1 once the end of the page is on screen. */
   fraction: number
@@ -50,10 +50,4 @@ export function readingPosition(scrollY: number, scrollHeight: number, viewport:
   if (max <= 0 || viewport <= 0) return { fraction: 1, pagesLeft: 0 }
   const y = Math.min(Math.max(0, scrollY), max)
   return { fraction: y / max, pagesLeft: Math.max(0, Math.ceil((max - y) / viewport)) }
-}
-
-/** The footer's wording for a reading position. */
-export function pagesLeftLabel(pagesLeft: number): string {
-  if (pagesLeft === 0) return 'Last page in this chapter'
-  return pagesLeft === 1 ? '1 page left in this chapter' : `${pagesLeft} pages left in this chapter`
 }

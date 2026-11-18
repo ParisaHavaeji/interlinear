@@ -1,7 +1,7 @@
 /**
  * The Books chrome around the page (plan.md step 17): a top bar with back, contents, title,
- * aA, search and bookmark, and a footer with the chapter's progress line and how many pages
- * are left. Both slide away as the reader scrolls down and come back on the way up
+ * aA, search and bookmark, and a footer with the book's progress line and the chapter on
+ * screen. Both slide away as the reader scrolls down and come back on the way up
  * (`useChrome`, over the arithmetic in `chrome.ts`). The ribbon opens the book's bookmarks
  * (step 26); bookmarks themselves are made from the bottom card (step 25). aA opens the
  * appearance menu (step 28, `AppearanceMenu.tsx`). Search is a later step; its button is in
@@ -10,7 +10,7 @@
 
 import type { RefObject } from 'preact'
 import { useEffect, useState } from 'preact/hooks'
-import { chromeAfterScroll, pagesLeftLabel, readingPosition, SHOWN, type ChromeState, type ReadingPosition } from './chrome.ts'
+import { chromeAfterScroll, readingPosition, SHOWN, type ChromeState, type ReadingPosition } from './chrome.ts'
 
 export interface Chrome {
   hidden: boolean
@@ -20,8 +20,8 @@ export interface Chrome {
 /**
  * Follow the window's scroll: hide the chrome on the way down, show it on the way up, and keep
  * the footer's position current. `page` is the element whose height is the page's: the
- * windowed chapter body grows after the first paint and as paragraphs are measured, which
- * moves no scroll position but changes how many pages are left.
+ * windowed body grows after the first paint and as paragraphs are measured, which moves no
+ * scroll position but changes how far through the book the page is.
  */
 export function useChrome(resetKey: unknown, page: RefObject<HTMLElement | null>): Chrome {
   const [state, setState] = useState<ChromeState>(SHOWN)
@@ -118,7 +118,7 @@ export function ReaderBar({ title, onBack, onContents, onBookmarks, onAppearance
 
 interface FooterProps {
   position: ReadingPosition
-  /** "3 of 12", shown on the left. */
+  /** The chapter on screen, "3 of 12". */
   chapter: string
 }
 
@@ -129,7 +129,7 @@ export function ReaderFooter({ position, chapter }: FooterProps) {
       <div
         class="reader-progress"
         role="progressbar"
-        aria-label="Position in chapter"
+        aria-label="Position in book"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
@@ -138,7 +138,6 @@ export function ReaderFooter({ position, chapter }: FooterProps) {
       </div>
       <div class="reader-footer-text">
         <span class="reader-footer-chapter">{chapter}</span>
-        <span class="reader-footer-pages">{pagesLeftLabel(position.pagesLeft)}</span>
       </div>
     </footer>
   )
