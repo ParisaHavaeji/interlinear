@@ -1,6 +1,6 @@
 // The bookmarks screen (plan.md step 26): grouping and search, finding a bookmark in the text as it is now, swipe-to-delete arithmetic.
 import { describe, expect, it } from 'vitest'
-import { countLabel, dateLabel, filterGroups, groupBookmarks, matchesSearch, positionOf, searchKey, searchTerms, wordGloss, wordHeadline } from '../src/bookmarks/list.ts'
+import { countLabel, dateLabel, filterGroups, filterKind, groupBookmarks, kindCounts, matchesSearch, positionOf, searchKey, searchTerms, wordGloss, wordHeadline } from '../src/bookmarks/list.ts'
 import { locateBookmark } from '../src/bookmarks/locate.ts'
 import type { SentenceBookmark, WordBookmark } from '../src/bookmarks/model.ts'
 import type { Book, BookmarkRow } from '../src/store/db.ts'
@@ -66,6 +66,18 @@ describe('groupBookmarks', () => {
   it('leaves out books without bookmarks', () => {
     expect(groupBookmarks([], [kafka])).toEqual([])
     expect(groupBookmarks(rows, [book('other', 'X', 'Y')])).toEqual([])
+  })
+})
+
+describe('tabs', () => {
+  it('keeps words and phrases apart, dropping books left without rows of the kind', () => {
+    const groups = groupBookmarks(rows, [hesse, kafka])
+    expect(kindCounts(groups)).toEqual({ word: 1, sentence: 3 })
+    expect(filterKind(groups, 'word').map((g) => [g.book.id, g.rows.map((r) => r.id)])).toEqual([['k', ['w1']]])
+    expect(filterKind(groups, 'sentence').map((g) => [g.book.id, g.rows.map((r) => r.id)])).toEqual([
+      ['k', ['s1', 's2']],
+      ['h', ['h1']],
+    ])
   })
 })
 

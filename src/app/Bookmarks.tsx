@@ -14,11 +14,15 @@
  * `bookmarks/export.ts` (JSON, Markdown, Anki); the file holds the bookmarks on screen, so a
  * search narrows the export too, and goes out through the share sheet where there is one and
  * as a download elsewhere (`ui/download.ts`).
+ *
+ * Words and phrases (sentence bookmarks) are kept apart in two tabs under the search field;
+ * the search, the counts and the export all follow the tab on screen. The screen opens on
+ * Words unless there are only phrases.
  */
 
 import { useMemo, useState } from 'preact/hooks'
 import { EXPORT_FORMATS, exportBookmarks, type ExportFormat } from '../bookmarks/export.ts'
-import { countLabel, dateLabel, filterGroups, groupBookmarks, wordGloss, wordHeadline, type BookmarkGroup } from '../bookmarks/list.ts'
+import { countLabel, dateLabel, filterGroups, filterKind, groupBookmarks, kindCounts, wordGloss, wordHeadline, type BookmarkGroup, type BookmarkKind } from '../bookmarks/list.ts'
 import { listBookmarks, removeBookmark } from '../bookmarks/store.ts'
 import { articleColour, sanitizeArticleColours, type ArticleColours } from '../reader/word.ts'
 import { db, type Book, type BookmarkRow } from '../store/db.ts'
@@ -37,6 +41,11 @@ interface Props {
   onBack: () => void
 }
 
+const TABS: { kind: BookmarkKind; label: string }[] = [
+  { kind: 'word', label: 'Words' },
+  { kind: 'sentence', label: 'Phrases' },
+]
+
 export function Bookmarks({ book, onBack }: Props) {
   const books = useBooks()
   const rows = useLiveQuery(() => (book === undefined ? db().bookmarks.toArray() : listBookmarks(book.id)), [book?.id])
@@ -46,7 +55,13 @@ export function Bookmarks({ book, onBack }: Props) {
   const [openId, setOpenId] = useState<string | null>(null)
 
   const groups = useMemo(() => (rows === undefined || books === undefined ? [] : groupBookmarks(rows, books)), [rows, books])
-  const shown = useMemo(() => filterGroups(groups, query), [groups, query])
+  const searched = useMemo(() => filterGroups(groups, query), [groups, query])
+  const counts = useMemo(() => kindCounts(searched), [searched])
+  const totals = useMemo(() => kindCounts(groups), [groups])
+  /** The tab chosen; null until one is, which means Words unless there are only phrases. */
+  const [chosenKind, setChosenKind] = useState<BookmarkKind | null>(null)
+  const kind: BookmarkKind = chosenKind ?? (totals.word === 0 && totals.sentence > 0 ? 'sentence' : 'word')
+  const shown = useMemo(() => filterKind(searched, kind), [searched, kind])
   const scoped = book === undefined ? undefined : books?.find((b) => b.id === book.id)
   const now = Date.now()
   const shownCount = shown.reduce((n, g) => n + g.rows.length, 0)
@@ -121,6 +136,24 @@ export function Bookmarks({ book, onBack }: Props) {
             </button>
           )}
         </label>
+        <div class="bm-tabs" role="tablist" aria-label="Kind of bookmark">
+          {TABS.map((t) => (
+            <button
+              type="button"
+              role="tab"
+              class="bm-tab"
+              key={t.kind}
+              aria-selected={kind === t.kind}
+              onClick={() => {
+                setChosenKind(t.kind)
+                setOpenId(null)
+              }}
+            >
+              {t.label}
+              {rows !== undefined && <span class="bm-tab-count">{counts[t.kind]}</span>}
+            </button>
+          ))}
+        </div>
       </header>
 
       <main
@@ -140,7 +173,11 @@ export function Bookmarks({ book, onBack }: Props) {
           </div>
         ) : shown.length === 0 ? (
           <p class="bm-none" role="status">
-            No bookmarks match “{query.trim()}”.
+            {query.trim() !== ''
+              ? `No ${kind === 'word' ? 'words' : 'phrases'} match “${query.trim()}”.`
+              : kind === 'word'
+                ? 'No words bookmarked yet. Tap a word while reading and choose Bookmark on its card.'
+                : 'No phrases bookmarked yet. Tap a sentence while reading and choose Bookmark on its card.'}
           </p>
         ) : (
           shown.map((g) => (

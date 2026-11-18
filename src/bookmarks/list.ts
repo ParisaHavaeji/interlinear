@@ -57,6 +57,29 @@ export function groupBookmarks(rows: readonly BookmarkRow[], books: readonly Boo
 }
 
 // ---------------------------------------------------------------------------------------------
+// Tabs
+
+/** The screen's tabs: word bookmarks, and phrase (sentence) bookmarks. */
+export type BookmarkKind = BookmarkRow['type']
+
+/** The groups with only the rows of one kind; groups left empty are dropped. */
+export function filterKind(groups: readonly BookmarkGroup[], kind: BookmarkKind): BookmarkGroup[] {
+  const out: BookmarkGroup[] = []
+  for (const g of groups) {
+    const rows = g.rows.filter((r) => r.type === kind)
+    if (rows.length > 0) out.push({ ...g, rows })
+  }
+  return out
+}
+
+/** How many rows of each kind `groups` hold. */
+export function kindCounts(groups: readonly BookmarkGroup[]): Record<BookmarkKind, number> {
+  const counts = { word: 0, sentence: 0 }
+  for (const g of groups) for (const r of g.rows) counts[r.type]++
+  return counts
+}
+
+// ---------------------------------------------------------------------------------------------
 // Search
 
 /** Text as the search compares it: lower case, no accents, ß as ss, one space between words. */

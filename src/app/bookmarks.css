@@ -273,3 +273,40 @@
   background: light-dark(var(--bg-elev), #2c2c2e);
 }
 
+
+/* Words and phrases in two tabs: a segmented control under the search field, as in the aA menu. */
+.bm-tabs {
+  align-self: stretch;
+  display: flex;
+  margin-top: 10px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+
+.bm-tab {
+  flex: 1;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--fg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: 500 14px var(--font-ui);
+  cursor: pointer;
+}
+
+.bm-tab[aria-selected='true'] {
+  background: var(--bg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px var(--separator);
+  font-weight: 600;
+}
+
+.bm-tab-count {
+  font-weight: 400;
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
