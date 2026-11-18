@@ -72,7 +72,7 @@ describe('groupBookmarks', () => {
 describe('tabs', () => {
   it('keeps words and phrases apart, dropping books left without rows of the kind', () => {
     const groups = groupBookmarks(rows, [hesse, kafka])
-    expect(kindCounts(groups)).toEqual({ word: 1, sentence: 3 })
+    expect(kindCounts(groups)).toEqual({ word: 1, sentence: 3, highlight: 0 })
     expect(filterKind(groups, 'word').map((g) => [g.book.id, g.rows.map((r) => r.id)])).toEqual([['k', ['w1']]])
     expect(filterKind(groups, 'sentence').map((g) => [g.book.id, g.rows.map((r) => r.id)])).toEqual([
       ['k', ['s1', 's2']],

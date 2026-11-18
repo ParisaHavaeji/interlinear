@@ -26,6 +26,8 @@ export interface BookmarkGroup {
 /** Where a bookmark sits in its book: the first sentence it covers, and the word's offset within it. */
 export function positionOf(row: BookmarkRow): [number, number] {
   if (row.type === 'word') return [row.payload.word.sentence, row.payload.word.offset]
+  // Highlights are placed by paragraph; they are only ever listed among themselves.
+  if (row.type === 'highlight') return [row.payload.start?.para ?? Number.MAX_SAFE_INTEGER, row.payload.start?.offset ?? 0]
   const first = row.payload.sentences[0]
   return [first === undefined ? Number.MAX_SAFE_INTEGER : first, -1]
 }
@@ -59,7 +61,7 @@ export function groupBookmarks(rows: readonly BookmarkRow[], books: readonly Boo
 // ---------------------------------------------------------------------------------------------
 // Tabs
 
-/** The screen's tabs: word bookmarks, and phrase (sentence) bookmarks. */
+/** The screen's tabs: word bookmarks, phrase (sentence) bookmarks, and highlights with their notes. */
 export type BookmarkKind = BookmarkRow['type']
 
 /** The groups with only the rows of one kind; groups left empty are dropped. */
@@ -74,7 +76,7 @@ export function filterKind(groups: readonly BookmarkGroup[], kind: BookmarkKind)
 
 /** How many rows of each kind `groups` hold. */
 export function kindCounts(groups: readonly BookmarkGroup[]): Record<BookmarkKind, number> {
-  const counts = { word: 0, sentence: 0 }
+  const counts = { word: 0, sentence: 0, highlight: 0 }
   for (const g of groups) for (const r of g.rows) counts[r.type]++
   return counts
 }
@@ -103,6 +105,7 @@ export function searchTerms(query: string): string[] {
 export function searchText(row: BookmarkRow, book?: Pick<Book, 'title' | 'author'>): string {
   const parts: string[] = []
   if (row.type === 'sentence') parts.push(row.payload.text, row.payload.translationText, row.payload.heading)
+  else if (row.type === 'highlight') parts.push(row.payload.text, row.note, row.payload.heading)
   else {
     const p = row.payload
     parts.push(p.word.token, p.lemma ?? '', p.sentenceText, p.translationText, p.heading)

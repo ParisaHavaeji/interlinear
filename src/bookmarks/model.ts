@@ -51,8 +51,33 @@ export interface WordBookmark {
   heading: string
 }
 
+/** A place in the shown language's text: a paragraph (`Paragraph.idx`) and a character offset into it. */
+export interface TextPoint {
+  para: number
+  offset: number
+}
+
+/**
+ * A highlight (`bookmarks/highlights.ts`): any stretch of the text the reader selected, from
+ * `start` up to but not including `end`, in a colour of their choosing. Its note is the row's
+ * `note`. Paragraphs are fixed at import, so the place survives a re-alignment as it is.
+ */
+export interface HighlightBookmark {
+  start: TextPoint
+  end: TextPoint
+  /** The highlighted text as it read, paragraphs joined with a line break. */
+  text: string
+  /** One of `HIGHLIGHT_COLOURS`. */
+  colour: string
+  chapter: number
+  heading: string
+}
+
 /** The typed half of a bookmark row: its kind and payload together. */
-export type BookmarkEntry = { type: 'sentence'; payload: SentenceBookmark } | { type: 'word'; payload: WordBookmark }
+export type BookmarkEntry =
+  | { type: 'sentence'; payload: SentenceBookmark }
+  | { type: 'word'; payload: WordBookmark }
+  | { type: 'highlight'; payload: HighlightBookmark }
 
 /** The bookmark for what the sentence card shows. */
 export function sentenceBookmark(

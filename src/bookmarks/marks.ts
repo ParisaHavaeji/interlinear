@@ -33,6 +33,8 @@ export function bookmarkMarks(rows: readonly BookmarkRow[], text: ReadonlyMap<nu
   const sentences = new Set<number>()
   const words = new Map<number, Set<number>>()
   for (const row of rows) {
+    // A highlight is drawn in its own colour, from its own range (`bookmarks/highlights.ts`).
+    if (row.type === 'highlight') continue
     const place = locateBookmark(row, text)
     if (place === null) continue
     if (row.type === 'sentence') {

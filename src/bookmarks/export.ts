@@ -135,6 +135,11 @@ function markdownRow(row: BookmarkRow): string[] {
     const p = row.payload
     return p.translationText === '' ? [`**${p.text}**`] : [`**${p.text}**  `, p.translationText]
   }
+  if (row.type === 'highlight') {
+    // The highlighted text as a quote, the reader's note beneath it.
+    const quote = row.payload.text.split('\n').map((line) => `> ${line}`)
+    return row.note.trim() === '' ? quote : [...quote, '', row.note.trim()]
+  }
   const p = row.payload
   const glosses = wordGlosses(p)
   const out = [`**${wordFront(p)}**${glosses === '' ? (p.lemma === null ? ' — no entry' : '') : ` — ${glosses}`}`]
@@ -161,6 +166,7 @@ export function bookmarksTsv(groups: readonly BookmarkGroup[]): string {
 /** The two fields of a bookmark's note: front (German), back (English), as HTML. */
 export function ankiNote(row: BookmarkRow): [front: string, back: string] {
   if (row.type === 'sentence') return [html(row.payload.text), html(row.payload.translationText)]
+  if (row.type === 'highlight') return [html(row.payload.text), html(row.note.trim())]
   const p = row.payload
   const back: string[] = []
   const glosses = wordGlosses(p)

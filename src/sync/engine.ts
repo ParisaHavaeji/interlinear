@@ -127,7 +127,7 @@ function progressOf(book: Book, state: RemoteState['progress']): ProgressRow | n
 function bookmarkOf(book: Book, b: RemoteBookmark): BookmarkRow | null {
   if (typeof b !== 'object' || b === null) return null
   if (typeof b.id !== 'string' || typeof b.created !== 'number' || typeof b.payload !== 'object' || b.payload === null) return null
-  if (b.type !== 'sentence' && b.type !== 'word') return null
+  if (b.type !== 'sentence' && b.type !== 'word' && b.type !== 'highlight') return null
   const entry = { type: b.type, payload: b.payload } as BookmarkEntry
   return { id: b.id, bookId: book.id, note: typeof b.note === 'string' ? b.note : '', created: b.created, ...entry }
 }

@@ -15,15 +15,17 @@
  * search narrows the export too, and goes out through the share sheet where there is one and
  * as a download elsewhere (`ui/download.ts`).
  *
- * Words and phrases (sentence bookmarks) are kept apart in two tabs under the search field;
- * the search, the counts and the export all follow the tab on screen. The screen opens on
- * Words unless there are only phrases, and on the tab last chosen after that, so coming back
+ * Words, phrases (sentence bookmarks) and highlights (stretches of text the reader selected,
+ * with their notes) are kept apart in three tabs under the search field; the search, the
+ * counts and the export all follow the tab on screen. The screen opens on the first tab that
+ * has anything, and on the tab last chosen after that, so coming back
  * from a bookmark opened in the Reader lands on the same tab.
  */
 
 import { useMemo, useState } from 'preact/hooks'
 import { EXPORT_FORMATS, exportBookmarks, type ExportFormat } from '../bookmarks/export.ts'
 import { countLabel, dateLabel, filterGroups, filterKind, groupBookmarks, kindCounts, wordGloss, wordHeadline, type BookmarkGroup, type BookmarkKind } from '../bookmarks/list.ts'
+import { sanitizeHighlightColour } from '../bookmarks/highlights.ts'
 import { listBookmarks, removeBookmark } from '../bookmarks/store.ts'
 import { articleColour, sanitizeArticleColours, type ArticleColours } from '../reader/word.ts'
 import { db, type Book, type BookmarkRow } from '../store/db.ts'
@@ -45,7 +47,15 @@ interface Props {
 const TABS: { kind: BookmarkKind; label: string }[] = [
   { kind: 'word', label: 'Words' },
   { kind: 'sentence', label: 'Phrases' },
+  { kind: 'highlight', label: 'Highlights' },
 ]
+
+/** What each tab says when it is empty, and what its rows are called in "No … match". */
+const KIND_TEXT: Record<BookmarkKind, { plural: string; empty: string }> = {
+  word: { plural: 'words', empty: 'No words bookmarked yet. Tap a word while reading and choose Bookmark on its card.' },
+  sentence: { plural: 'phrases', empty: 'No phrases bookmarked yet. Tap a sentence while reading and choose Bookmark on its card.' },
+  highlight: { plural: 'highlights', empty: 'No highlights yet. Hold on the text while reading, select a stretch, and pick a colour or write a note.' },
+}
 
 /** The tab chosen last, kept while the app is open: the screen is unmounted by a jump to the Reader. */
 let lastKind: BookmarkKind | null = null
@@ -64,7 +74,7 @@ export function Bookmarks({ book, onBack }: Props) {
   const totals = useMemo(() => kindCounts(groups), [groups])
   /** The tab chosen; null until one is, which means Words unless there are only phrases. */
   const [chosenKind, setChosenKind] = useState<BookmarkKind | null>(lastKind)
-  const kind: BookmarkKind = chosenKind ?? (totals.word === 0 && totals.sentence > 0 ? 'sentence' : 'word')
+  const kind: BookmarkKind = chosenKind ?? (totals.word > 0 ? 'word' : totals.sentence > 0 ? 'sentence' : totals.highlight > 0 ? 'highlight' : 'word')
   const shown = useMemo(() => filterKind(searched, kind), [searched, kind])
   const scoped = book === undefined ? undefined : books?.find((b) => b.id === book.id)
   const now = Date.now()
@@ -178,11 +188,7 @@ export function Bookmarks({ book, onBack }: Props) {
           </div>
         ) : shown.length === 0 ? (
           <p class="bm-none" role="status">
-            {query.trim() !== ''
-              ? `No ${kind === 'word' ? 'words' : 'phrases'} match “${query.trim()}”.`
-              : kind === 'word'
-                ? 'No words bookmarked yet. Tap a word while reading and choose Bookmark on its card.'
-                : 'No phrases bookmarked yet. Tap a sentence while reading and choose Bookmark on its card.'}
+            {query.trim() !== '' ? `No ${KIND_TEXT[kind].plural} match “${query.trim()}”.` : KIND_TEXT[kind].empty}
           </p>
         ) : (
           shown.map((g) => (
@@ -273,6 +279,19 @@ function rowLabel(row: BookmarkRow): string {
   return `${row.payload.text}${where}`
 }
 
+/** A highlight's row: its text behind a bar of its colour, the note beneath. */
+function HighlightRowBody({ row, lang, meta }: { row: Extract<BookmarkRow, { type: 'highlight' }>; lang: string; meta: string }) {
+  return (
+    <>
+      <p class={`bm-text bm-text--hl hl-quote--${sanitizeHighlightColour(row.payload.colour)}`} lang={lang}>
+        {row.payload.text}
+      </p>
+      {row.note.trim() !== '' && <p class="bm-sub bm-sub--note">{row.note.trim()}</p>}
+      <p class="bm-meta">{meta}</p>
+    </>
+  )
+}
+
 interface RowProps {
   row: BookmarkRow
   book: Book
@@ -283,6 +302,7 @@ interface RowProps {
 
 function Row({ row, book, lang, colours, now }: RowProps) {
   const meta = [row.payload.heading, dateLabel(row.created, now)].filter((s) => s !== '').join(' · ')
+  if (row.type === 'highlight') return <HighlightRowBody row={row} lang={lang} meta={meta} />
   if (row.type === 'sentence') {
     const p = row.payload
     return (

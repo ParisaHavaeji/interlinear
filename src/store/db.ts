@@ -7,7 +7,7 @@ import { Dexie, type EntityTable, type Table } from 'dexie'
 import type { AlignStats, ChapterMap } from '../align/pipeline.ts'
 import type { InducedPair } from '../align/lexicon.ts'
 import type { ChapterEdits } from '../align/structure.ts'
-import type { SentenceBookmark, WordBookmark } from '../bookmarks/model.ts'
+import type { BookmarkEntry } from '../bookmarks/model.ts'
 import type { TxtLayout } from '../import/txt.ts'
 import type { Lang, SectionKind } from '../import/types.ts'
 
@@ -119,15 +119,18 @@ export interface BeadRow {
   manual: boolean
 }
 
-/** A bookmark (step 25): a sentence's bead or a word, with what the card showed (`bookmarks/model.ts`). */
+/**
+ * A bookmark (step 25): a sentence's bead or a word, with what the card showed, or a highlight,
+ * any stretch of text the reader selected (`bookmarks/model.ts`).
+ */
 export type BookmarkRow = {
   id: string
   bookId: string
-  /** The reader's own note; empty until a later step lets them write one. */
+  /** The reader's own note; written on highlights, empty on the other kinds. */
   note: string
   /** Unix ms. */
   created: number
-} & ({ type: 'sentence'; payload: SentenceBookmark } | { type: 'word'; payload: WordBookmark })
+} & BookmarkEntry
 
 /**
  * Where a book was last read (step 29): the place the Reader restores when the book is opened

@@ -3,8 +3,9 @@
  * Previous / Next arrows in the fixed header, then the English sentence(s) of the tapped bead in
  * the reading font, a note with the neighbouring English sentences when the match is uncertain
  * or missing, and the actions (Bookmark, which saves or removes the bead's bookmark (step 25)
- * and shows filled while one exists; Copy; Fix alignment, which switches the card to the repair
- * mode of step 20). The Reader owns the highlight, the stepping and the bookmarks; this
+ * and shows filled while one exists; Copy; and a "…" button whose menu holds Fix alignment,
+ * which switches the card to the repair mode of step 20: the only way there, so the repair
+ * never comes up unasked). The Reader owns the highlight, the stepping and the bookmarks; this
  * component only draws what `reader/card.ts` worked out.
  */
 
@@ -58,8 +59,16 @@ export function SentenceCardBody({ card, lang, text, onCopy, bookmarked, onBookm
     const timer = setTimeout(() => setCopied(false), 1500)
     return () => clearTimeout(timer)
   }, [copied])
-  // A new sentence resets the button.
-  useEffect(() => setCopied(false), [card])
+  /** The "…" menu is open: the rarely needed actions, kept out of the way until asked for. */
+  const [more, setMore] = useState(false)
+  // A new sentence resets the button and shuts the menu. By the sentences it is about: the
+  // Reader hands over a fresh `card` object on every render of its own (the card growing when
+  // the menu opens is one), which is not a new sentence.
+  const sentenceKey = card.highlight.join(',')
+  useEffect(() => {
+    setCopied(false)
+    setMore(false)
+  }, [sentenceKey])
 
   const translation = card.translation.map(text).filter((t): t is string => t !== undefined)
   const before = card.before === null ? undefined : text(card.before)
@@ -101,14 +110,37 @@ export function SentenceCardBody({ card, lang, text, onCopy, bookmarked, onBookm
           </svg>
           {copied ? 'Copied' : 'Copy'}
         </button>
-        <button type="button" class="card-action" onClick={onFix} disabled={onFix === undefined} title="Fix how this sentence is matched with the translation">
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path d="M4 7h10M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-            <path d="m17 5 2 2-2 2M17 15l2 2-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-          Fix alignment
-        </button>
+        {onFix !== undefined && (
+          <button
+            type="button"
+            class={more ? 'card-action card-action--icon card-action--on' : 'card-action card-action--icon'}
+            aria-label="More"
+            title="More"
+            aria-expanded={more}
+            onClick={() => setMore((m) => !m)}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <circle cx="5" cy="12" r="2" fill="currentColor" />
+              <circle cx="12" cy="12" r="2" fill="currentColor" />
+              <circle cx="19" cy="12" r="2" fill="currentColor" />
+            </svg>
+          </button>
+        )}
       </div>
+      {more && onFix !== undefined && (
+        <div class="card-menu" role="menu" aria-label="More">
+          <button type="button" class="card-menu-item" role="menuitem" onClick={onFix}>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M4 7h10M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              <path d="m17 5 2 2-2 2M17 15l2 2-2 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="card-menu-text">
+              <span class="card-menu-label">Fix alignment</span>
+              <span class="card-menu-detail">Change which part of the translation this sentence is matched with</span>
+            </span>
+          </button>
+        </div>
+      )}
     </>
   )
 }

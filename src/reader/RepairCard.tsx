@@ -1,6 +1,6 @@
 /**
- * The bottom card's content in repair mode (plan.md step 20): what a long-press on a German
- * sentence (or "Fix alignment" on the sentence card) opens. The header names the mode and has a
+ * The bottom card's content in repair mode (plan.md step 20): what "Fix alignment" in
+ * the "…" menu of the sentence card opens. The header names the mode and has a
  * Done button back to the sentence card; the body shows the bead's German side, the English
  * sentences around its English side (the match itself in full colour, its neighbours greyed, so
  * a shift's effect is visible before it is made), and the actions of `align/repair.ts`: shift

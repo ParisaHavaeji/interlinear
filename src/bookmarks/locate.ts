@@ -24,6 +24,8 @@ export interface BookmarkLocation {
  * anywhere else in the sentence.
  */
 export function locateBookmark(row: BookmarkRow, text: ReadonlyMap<number, string>): BookmarkLocation | null {
+  // A highlight is placed by paragraph and offset, not by sentence; the Reader finds it itself.
+  if (row.type === 'highlight') return null
   if (row.type === 'sentence') {
     const first = row.payload.sentences[0]
     const idx = findSentence(text, first, (t) => startsBead(row.payload.text, t))

@@ -238,6 +238,18 @@
   overflow-wrap: anywhere;
 }
 
+/* A highlight: its text behind a bar of its colour (the `--hl-swatch` of ui/card.css), its note beneath. */
+.bm-text--hl {
+  padding-left: 10px;
+  border-left: 3px solid var(--hl-swatch, var(--separator));
+  white-space: pre-line;
+}
+
+.bm-sub--note {
+  color: var(--fg);
+  white-space: pre-line;
+}
+
 .bm-meta {
   margin: 6px 0 0;
   font-size: 12px;

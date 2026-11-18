@@ -1,6 +1,6 @@
 /**
  * Alignment repair (plan.md step 20, §1.2 "Fallbacks & escape hatches"): the last resort when
- * the aligner got a sentence wrong. The reader long-presses a German sentence and fixes its
+ * the aligner got a sentence wrong. The reader picks Fix alignment on a German sentence's card and fixes its
  * bead by hand: shift the English side one sentence earlier or later, merge the bead with the
  * one before or after, or split it into single sentences. A fix *pins* the bead (`manual`), and
  * Layer C runs again over the free sentences around it, so one fix cascades through the rest of

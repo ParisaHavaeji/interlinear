@@ -28,10 +28,18 @@
  * highlighted sentence between the top bar and the card; sentences of uncertain beads carry a
  * dotted underline. The model behind all this is `reader/card.ts`.
  *
- * A long-press on a sentence (or a right-click, or "Fix alignment" on the sentence card) opens
- * the card in repair mode (step 20, `RepairCard.tsx`): the bead can be shifted, merged, split or
- * reset by hand, each change saved at once through `align/repair.ts`, which pins the bead and
- * re-aligns the rest of its paragraph around it. The live query then redraws page and card.
+ * "Fix alignment", in the "…" menu of the sentence card, opens the card in repair mode (step 20,
+ * `RepairCard.tsx`): the bead can be shifted, merged, split or reset by hand, each change saved
+ * at once through `align/repair.ts`, which pins the bead and re-aligns the rest of its paragraph
+ * around it. The live query then redraws page and card. Nothing else leads there.
+ *
+ * Holding on the text selects it, as anywhere: a long-press and its handles on a touch screen, a
+ * drag with a mouse (a held or right-clicked word is selected whole). Once the selection rests
+ * the card opens in highlight mode (`HighlightCard.tsx`): a colour saves the stretch as a
+ * highlight, a note can be written on it, and both are kept as a third kind of bookmark
+ * (`bookmarks/highlights.ts`), drawn in the text in their colour. A selection inside a highlight,
+ * or a hold or right-click on one, opens that highlight again. `reader/selection.ts` reads the
+ * browser's selection as a place in the book.
  *
  * Tapping a word (step 24, §1.6) opens the same card in word mode (`WordCard.tsx`): the word is
  * highlighted on the page and looked up in the dictionary of steps 21–23 (`dict/shards.ts`,
@@ -76,16 +84,32 @@ import type { Lang } from '../import/types.ts'
 import { getParagraphs } from '../store/books.ts'
 import { db, type Book, type BookmarkRow, type ParagraphRow, type ProgressRow } from '../store/db.ts'
 import { applyRepair, BlockIndex, describeBead, type RepairOp } from '../align/repair.ts'
+import {
+  comparePoints,
+  containingHighlight,
+  highlightBookmark,
+  highlightRange,
+  highlightRows,
+  overlapping,
+  paraHighlights,
+  pieces,
+  rangeText,
+  sanitizeHighlightColour,
+  snapRange,
+  type HighlightColour,
+  type ParaHighlight,
+  type TextRange,
+} from '../bookmarks/highlights.ts'
 import { locateBookmark } from '../bookmarks/locate.ts'
 import { bookmarkMarks, markStyle, NO_MARKS, sanitizeMarkColours, type BookmarkMarks } from '../bookmarks/marks.ts'
 import { findSentenceBookmark, findWordBookmark, sentenceBookmark, wordBookmark } from '../bookmarks/model.ts'
-import { addBookmark, listBookmarks, removeBookmark } from '../bookmarks/store.ts'
+import { addBookmark, listBookmarks, removeBookmark, updateHighlight } from '../bookmarks/store.ts'
 import { useDictState } from '../dict/installer.ts'
 import type { LookupResult } from '../dict/lookup.ts'
 import { dictionary } from '../dict/shards.ts'
 import { useLiveQuery } from '../store/hooks.ts'
 import { getProgress, saveProgress } from '../store/progress.ts'
-import { APPEARANCE_KEY, ARTICLE_COLOURS_KEY, MARK_COLOURS_KEY, setSetting, useSetting } from '../store/settings.ts'
+import { APPEARANCE_KEY, ARTICLE_COLOURS_KEY, HIGHLIGHT_COLOUR_KEY, MARK_COLOURS_KEY, setSetting, useSetting } from '../store/settings.ts'
 import { BottomCard } from '../ui/BottomCard.tsx'
 import { syncThemeColor } from '../pwa/theme-color.ts'
 import { type Appearance, appearanceStyle, metricsKey, sanitizeAppearance, themeAttribute } from './appearance.ts'
@@ -93,9 +117,11 @@ import { AppearanceMenu } from './AppearanceMenu.tsx'
 import { BeadIndex, revealDelta, sentenceCard, stepSentence } from './card.ts'
 import { ChaptersSheet } from './ChaptersSheet.tsx'
 import { chapterAt, flowOf, flowPosition } from './flow.ts'
+import { HighlightCardBody, HighlightCardHeader } from './HighlightCard.tsx'
 import { bookFraction, samePlace, type ReadingPlace } from './progress.ts'
 import { ReaderBar, ReaderFooter, useChrome } from './ReaderChrome.tsx'
 import { RepairCardBody, RepairCardHeader } from './RepairCard.tsx'
+import { clearSelection, hasSelection, isEditing, selectElement, selectionRange, selectionRect } from './selection.ts'
 import { SentenceCardBody, SentenceCardHeader } from './SentenceCard.tsx'
 import { runsOf, tokenize, type SentenceSpan } from './tokenize.ts'
 import { estimateHeight, HeightMap, rangeFor, sameRange, type RenderRange, type TextMetrics } from './virtual.ts'
@@ -134,8 +160,23 @@ interface Jump {
   chapter: number
   /** Position of the sentence's paragraph within the chapter. */
   para: number
-  sentence: number
+  /** The sentence to place under the top bar; null for a highlight in a paragraph without sentences. */
+  sentence: number | null
   word?: { offset: number; token: string }
+  /** The bookmark is a highlight: its id, to open the highlight card on. */
+  highlight?: string
+}
+
+/** What the card shows in highlight mode: a selection not saved yet (`id` null), or a highlight. */
+interface HighlightState {
+  /** Tells one opening of the card from the next; a selection keeps its key when it is saved. */
+  key: number
+  range: TextRange
+  id: string | null
+  /** The selection is being saved. */
+  committing: boolean
+  /** The colour picked on this card, shown ahead of the live query. */
+  colour: HighlightColour | null
 }
 
 interface Loaded {
@@ -160,10 +201,12 @@ interface Loaded {
 
 const EMPTY = new Set<number>()
 const NO_BOOKMARKS: readonly BookmarkRow[] = []
-/** A pointer held still on a sentence this long opens the repair card. */
+/** A mouse held still on a word this long selects it, as a long-press does on a touch screen. */
 const LONG_PRESS_MS = 500
-/** A pointer that moves further than this before then is a scroll, not a press. */
+/** A pointer that moves further than this before then is a drag, not a hold. */
 const LONG_PRESS_SLOP = 10
+/** A selection that has not changed for this long is read: the handles of a touch selection have come to rest. */
+const SELECTION_SETTLE_MS = 250
 /** The reading place is saved this long after the last scroll (step 29). */
 const SAVE_DELAY_MS = 500
 
@@ -253,6 +296,15 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     if (at === undefined || data == null || chapters === null || bookmarkRows === undefined) return null
     const row = bookmarkRows.find((r) => r.id === at)
     if (row === undefined) return null
+    if (row.type === 'highlight') {
+      // A highlight is placed by paragraph: scroll to the sentence it starts in, when there is one.
+      const range = highlightRange(row.payload)
+      const hlPos = range === null ? -1 : data.paragraphs.findIndex((p) => p.idx === range.start.para)
+      const hlChapter = hlPos < 0 ? -1 : chapters.findIndex((c) => hlPos >= c.paraStart && hlPos < c.paraStart + c.paraCount)
+      if (range === null || hlChapter < 0) return null
+      const span = (data.sentences.get(range.start.para) ?? []).find((s) => range.start.offset < s.charEnd)
+      return { key: at, chapter: hlChapter, para: hlPos - chapters[hlChapter].paraStart, sentence: span?.idx ?? null, highlight: row.id }
+    }
     const place = locateBookmark(row, data.text)
     if (place === null) return null
     const paraIdx = data.paraOf.get(place.sentence)
@@ -292,6 +344,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   const goCount = useRef(0)
   const goToChapter = (n: number) => {
     setActive(null)
+    setHl(null)
     setGo({ key: `go/${++goCount.current}`, chapter: n, para: 0, fraction: 0 })
   }
   useEffect(() => {
@@ -316,6 +369,8 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   }, [bookId])
 
   const pageRef = useRef<HTMLDivElement>(null)
+  /** The text itself (`main.reader-page`): what a selection must lie within to be highlighted. */
+  const mainRef = useRef<HTMLElement>(null)
   const chrome = useChrome(`${bookId}/${data != null}`, pageRef)
   const [contents, setContents] = useState(false)
   /** The tapped sentence, by book-wide index; null while the card is closed. */
@@ -367,13 +422,16 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     setActive(null)
     setRepairing(false)
     setWord(null)
+    setHl(null)
   }, [bookId])
 
   // The page has scrolled to the bookmark (step 26): open the card on its sentence or word. Or
   // to the place the book opens at (step 29). Either way the book is in place: saving may begin.
   const arrive = (found: boolean) => {
     if (jump !== null) {
-      if (found) {
+      if (found && jump.highlight !== undefined) openHighlight(jump.highlight)
+      else if (found && jump.sentence !== null) {
+        setHl(null)
         setActive(jump.sentence)
         setRepairing(false)
         setWord(jump.word === undefined ? null : { sentence: jump.sentence, offset: jump.word.offset, token: jump.word.token })
@@ -473,25 +531,174 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(10)
   }
 
-  // Long press: a primary pointer held still on a sentence for LONG_PRESS_MS. The click that
-  // follows the release is swallowed so it does not re-select the sentence.
+  // --- Highlights -------------------------------------------------------------------------------
+  // The card in highlight mode: on the selection once it rests, or on a highlight that exists.
+  const [hl, setHl] = useState<HighlightState | null>(null)
+  const hlRef = useRef(hl)
+  hlRef.current = hl
+  const hlCount = useRef(0)
+  /** The colour used last: what a note begun on a fresh selection is filed under. */
+  const lastColour = useSetting(HIGHLIGHT_COLOUR_KEY, sanitizeHighlightColour)
+  const paraText = useMemo(() => new Map(data?.paragraphs.map((p) => [p.idx, p.text] as const) ?? []), [data])
+  const textOf = (para: number) => paraText.get(para)
+  /** Every paragraph's highlights, drawn in the text. */
+  const paraMarks = useMemo(() => paraHighlights(bookmarks), [bookmarks])
+  const hlRow = hl === null || hl.id === null ? undefined : highlightRows(bookmarks).find((r) => r.id === hl.id)
+
+  /** Open the card on a highlight that exists; false when it is not there. */
+  const openHighlight = (id: string): boolean => {
+    const row = highlightRows(bookmarks).find((r) => r.id === id)
+    const range = row === undefined ? null : highlightRange(row.payload)
+    if (range === null) return false
+    if (hlRef.current?.id !== id) setHl({ key: ++hlCount.current, range, id, committing: false, colour: null })
+    setActive(null)
+    return true
+  }
+
+  /** The last pointer went down on the card: a selection that goes with that tap is not the reader dropping it. */
+  const downInCard = useRef(false)
+
+  // Read the selection once it rests: inside a highlight it opens that highlight, anywhere else
+  // it is what the card offers to highlight. A selection that is gone takes an unsaved card with it.
+  const captureSelection = () => {
+    const page = mainRef.current
+    if (page === null || data == null || isEditing()) return
+    const cur = hlRef.current
+    if (cur !== null && cur.committing) return
+    const raw = selectionRange(page)
+    const range = raw === null ? null : snapRange(raw, textOf)
+    if (range === null) {
+      if (!downInCard.current) setHl((h) => (h !== null && h.id === null && !h.committing ? null : h))
+      return
+    }
+    const existing = containingHighlight(bookmarks, range)
+    if (existing !== undefined) {
+      openHighlight(existing.id)
+      return
+    }
+    if (cur !== null && cur.id === null && comparePoints(cur.range.start, range.start) === 0 && comparePoints(cur.range.end, range.end) === 0) return
+    setHl({ key: cur !== null && cur.id === null ? cur.key : ++hlCount.current, range, id: null, committing: false, colour: null })
+    setActive(null)
+  }
+  const capture = useRef(captureSelection)
+  capture.current = captureSelection
+
+  useEffect(() => {
+    let timer = 0
+    let mouseDown = false
+    const settle = () => {
+      timer = 0
+      // A mouse still dragging has not finished selecting; its release reads the selection.
+      if (!mouseDown) capture.current()
+    }
+    const schedule = (ms: number) => {
+      if (timer !== 0) clearTimeout(timer)
+      timer = window.setTimeout(settle, ms)
+    }
+    const onSelection = () => schedule(SELECTION_SETTLE_MS)
+    const onDown = (e: PointerEvent) => {
+      downInCard.current = e.target instanceof Element && e.target.closest('.card') !== null
+      if (e.pointerType === 'mouse') mouseDown = true
+    }
+    const onUp = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') return
+      mouseDown = false
+      schedule(10)
+    }
+    document.addEventListener('selectionchange', onSelection)
+    document.addEventListener('pointerdown', onDown, true)
+    document.addEventListener('pointerup', onUp, true)
+    document.addEventListener('pointercancel', onUp, true)
+    return () => {
+      if (timer !== 0) clearTimeout(timer)
+      document.removeEventListener('selectionchange', onSelection)
+      document.removeEventListener('pointerdown', onDown, true)
+      document.removeEventListener('pointerup', onUp, true)
+      document.removeEventListener('pointercancel', onUp, true)
+    }
+  }, [])
+
+  /** Close the card, whatever it shows; the selection goes with it, or it would open the card again. */
+  const closeCard = () => {
+    setActive(null)
+    if (hlRef.current !== null) clearSelection()
+    setHl(null)
+  }
+
+  /** Save the selection on the card as a highlight in `colour`. */
+  const commitHighlight = async (colour: HighlightColour) => {
+    const h = hlRef.current
+    if (h === null || h.id !== null || h.committing || data == null) return
+    const pending = { ...h, committing: true, colour }
+    hlRef.current = pending
+    setHl(pending)
+    try {
+      const pos = flowOfPara.get(h.range.start.para)
+      const at = pos === undefined || flow === null ? idx : chapterAt(flow.starts, pos)
+      const payload = highlightBookmark(h.range, rangeText(h.range, textOf), colour, { chapter: at, heading: chapters === null ? '' : headingOf(chapters, at, data.book.title) })
+      const row = await addBookmark(bookId, { type: 'highlight', payload })
+      setHl((cur) => (cur !== null && cur.key === h.key ? { ...cur, id: row.id, committing: false } : cur))
+      clearSelection()
+      void setSetting(HIGHLIGHT_COLOUR_KEY, colour)
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(10)
+    } catch (err) {
+      console.error('highlight failed', err)
+      setHl((cur) => (cur !== null && cur.key === h.key ? { ...cur, committing: false, colour: null } : cur))
+    }
+  }
+
+  /** A colour tapped on the card: save the selection in it, or recolour the highlight. */
+  const pickColour = (colour: HighlightColour) => {
+    const h = hlRef.current
+    if (h === null) return
+    if (h.id === null) {
+      void commitHighlight(colour)
+      return
+    }
+    setHl({ ...h, colour })
+    void setSetting(HIGHLIGHT_COLOUR_KEY, colour)
+    updateHighlight(h.id, { colour }).catch((err: unknown) => console.error('could not recolour the highlight', err))
+  }
+
+  /** What a hold or a right-click on `target` does: open the highlight under it, else highlight the selection it is in, else its word. */
+  const holdOn = (target: Element | null): boolean => {
+    const mark = target?.closest<HTMLElement>('[data-hl]')?.dataset.hl
+    if (mark !== undefined && openHighlight(mark)) {
+      clearSelection()
+      return true
+    }
+    if (!hasSelection(mainRef.current)) {
+      const w = target?.closest('.w')
+      if (w === undefined || w === null) return false
+      selectElement(w)
+    }
+    captureSelection()
+    return true
+  }
+
+  // A mouse held still on a word for LONG_PRESS_MS selects it, as a long-press does on a touch
+  // screen (where the browser's own selection, with its handles, is left to do the work). The
+  // click that follows the release is swallowed so it does not open the word card instead.
   const press = useRef<{ id: number; x: number; y: number; timer: number } | null>(null)
   const skipClick = useRef(false)
+  /** What the last pointer on the page was: a touch long-press is the browser's, a right-click ours. */
+  const pointerKind = useRef('mouse')
   const endPress = () => {
     if (press.current === null) return
     clearTimeout(press.current.timer)
     press.current = null
   }
   const onPointerDown = (e: PointerEvent) => {
-    if (!e.isPrimary || e.button !== 0) return
-    const sent = (e.target as Element | null)?.closest<HTMLElement>('.sent')
-    if (sent === undefined || sent === null) return
+    if (!e.isPrimary) return
+    pointerKind.current = e.pointerType
+    skipClick.current = false
+    if (e.button !== 0 || e.pointerType !== 'mouse') return
+    const target = e.target as Element | null
+    if (target === null || target.closest('.w, [data-hl]') === null) return
     endPress()
-    const idx = Number(sent.dataset.sentence)
     const timer = window.setTimeout(() => {
       press.current = null
-      skipClick.current = true
-      openRepair(idx)
+      if (holdOn(target)) skipClick.current = true
     }, LONG_PRESS_MS)
     press.current = { id: e.pointerId, x: e.clientX, y: e.clientY, timer }
   }
@@ -512,10 +719,13 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
       skipClick.current = false
       return
     }
+    // The click that ends a selection (a drag, a double-click) belongs to the selection.
+    if (hasSelection(mainRef.current)) return
     const target = e.target as Element | null
     const sent = target?.closest<HTMLElement>('.sent')
     if (sent === undefined || sent === null) return
     const idx = Number(sent.dataset.sentence)
+    setHl(null)
     setActive(idx)
     setRepairing(false)
     // A word opens the word card; punctuation, whitespace or the chevron after the sentence
@@ -529,13 +739,12 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     setWord((prev) => (sameWord(prev, next) ? prev : next))
   }
 
-  // A right-click (and, on Android, the long-press the browser would turn into a context menu).
+  // A right-click highlights: the highlight, the selection or the word under it. The context menu
+  // a touch long-press raises (Android) is left alone: there the browser is selecting the text.
   const onContextMenu = (e: MouseEvent) => {
-    const sent = (e.target as Element | null)?.closest<HTMLElement>('.sent')
-    if (sent === undefined || sent === null) return
-    e.preventDefault()
+    if (pointerKind.current !== 'mouse') return
     endPress()
-    openRepair(Number(sent.dataset.sentence))
+    if (holdOn(e.target as Element | null)) e.preventDefault()
   }
 
   const repairText = useMemo(
@@ -579,13 +788,23 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   // Keep the highlighted sentence (or word) between the top bar and the card, when the card
   // opens, grows or moves on. Smoothly, unless the reader asked for less motion.
   useEffect(() => {
-    if (card === null || cardHeight === 0) return
-    const targets =
-      word !== null
-        ? [...document.querySelectorAll('.w--active')]
-        : card.highlight.map((idx) => document.querySelector(`.sent[data-sentence="${idx}"]`)).filter((el): el is Element => el !== null)
+    if ((card === null && hl === null) || cardHeight === 0) return
     let top = Infinity
     let bottom = -Infinity
+    // In highlight mode: the selection while it is not saved, the highlight once it is.
+    const selected = hl !== null && hl.id === null ? selectionRect() : null
+    if (selected !== null) {
+      top = selected.top
+      bottom = selected.bottom
+    }
+    const targets =
+      hl !== null
+        ? selected !== null
+          ? []
+          : [...document.querySelectorAll('.hl--active')]
+        : word !== null
+          ? [...document.querySelectorAll('.w--active')]
+          : (card?.highlight ?? []).map((idx) => document.querySelector(`.sent[data-sentence="${idx}"]`)).filter((el): el is Element => el !== null)
     for (const el of targets) {
       const rect = el.getBoundingClientRect()
       top = Math.min(top, rect.top)
@@ -598,7 +817,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     if (delta === 0) return
     const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
     window.scrollBy({ top: delta, behavior: reduce ? 'auto' : 'smooth' })
-  }, [card, word, cardHeight])
+  }, [card, word, cardHeight, hl?.key, hl?.id])
 
   const step = (dir: -1 | 1) => {
     if (data == null || active === null) return
@@ -673,6 +892,10 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   const activePos = active === null ? undefined : flowOfPara.get(data.paraOf.get(active) ?? -1)
   const cardChapter = activePos === undefined ? idx : chapterAt(flow.starts, activePos)
   const heading = headingOf(chapters, cardChapter, data.book.title)
+  // In highlight mode the card names the chapter the highlight starts in.
+  const hlPos = hl === null ? undefined : flowOfPara.get(hl.range.start.para)
+  const hlHeading = headingOf(chapters, hlPos === undefined ? idx : chapterAt(flow.starts, hlPos), data.book.title)
+  const hlText = hl === null ? '' : (hlRow?.payload.text ?? rangeText(hl.range, textOf))
   const scrollTarget = jump !== null ? { ...jump, fraction: 0 } : (opening ?? go)
 
   return (
@@ -688,6 +911,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
       <AppearanceMenu open={appearanceOpen} value={appearance} onChange={changeAppearance} onClose={() => setAppearanceOpen(false)} />
       <main
         class="reader-page"
+        ref={mainRef}
         lang={data.lang}
         onClick={onPageClick}
         onContextMenu={onContextMenu}
@@ -706,6 +930,8 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
           uncertain={uncertain}
           word={word}
           marks={marks}
+          highlights={paraMarks}
+          activeHighlight={hl?.id ?? null}
           metrics={metricsKey(appearance)}
           target={
             scrollTarget === null
@@ -726,16 +952,20 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
         <ChaptersSheet open={contents} book={data.book} current={idx} onClose={() => setContents(false)} onChapter={goToChapter} />
       )}
       <BottomCard
-        open={card !== null}
-        onClose={() => setActive(null)}
+        open={card !== null || hl !== null}
+        onClose={closeCard}
         onOutsideTap={(target) => {
           // A tap on another sentence switches the card (onPageClick); anything else closes it.
-          if (target === null || target.closest('.sent') === null) setActive(null)
+          // Not the release of a hold that has just opened the card on a word.
+          if (skipClick.current) return
+          if (target === null || target.closest('.sent') === null) closeCard()
         }}
         onHeightChange={setCardHeight}
-        label={word !== null ? 'Word' : repairing ? 'Fix alignment' : 'Sentence'}
+        label={hl !== null ? 'Highlight' : word !== null ? 'Word' : repairing ? 'Fix alignment' : 'Sentence'}
         header={
-          word !== null ? (
+          hl !== null ? (
+            <HighlightCardHeader heading={hlHeading} />
+          ) : word !== null ? (
             <WordCardHeader word={word} lang={data.lang} />
           ) : repairing ? (
             <RepairCardHeader onDone={() => setRepairing(false)} />
@@ -744,7 +974,27 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
           )
         }
       >
-        {card !== null && word !== null && (
+        {hl !== null && (
+          <HighlightCardBody
+            key={hl.key}
+            text={hlText}
+            lang={data.lang}
+            colour={hl.colour ?? (hlRow === undefined ? null : sanitizeHighlightColour(hlRow.payload.colour))}
+            note={hlRow?.note ?? ''}
+            saved={hl.id !== null}
+            onColour={pickColour}
+            onStartNote={() => void commitHighlight(lastColour)}
+            onNote={(note) => {
+              if (hl.id !== null) updateHighlight(hl.id, { note }).catch((err: unknown) => console.error('could not save the note', err))
+            }}
+            onCopy={() => navigator.clipboard.writeText(hlText)}
+            onRemove={() => {
+              if (hl.id !== null) removeBookmark(hl.id).catch((err: unknown) => console.error('could not remove the highlight', err))
+              closeCard()
+            }}
+          />
+        )}
+        {hl === null && card !== null && word !== null && (
           <WordCardBody
             word={word}
             view={lookup !== null && sameWord(lookup.word, word) ? wordView : null}
@@ -777,7 +1027,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
             }
           />
         )}
-        {card !== null && word === null && repairing && repairText !== null && (
+        {hl === null && card !== null && word === null && repairing && repairText !== null && (
           <RepairCardBody
             description={repairDescription}
             langs={[data.lang, data.otherLang]}
@@ -787,7 +1037,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
             error={repairError}
           />
         )}
-        {card !== null && word === null && !repairing && (
+        {hl === null && card !== null && word === null && !repairing && (
           <SentenceCardBody
             card={card}
             lang={data.otherLang}
@@ -863,6 +1113,10 @@ interface BodyProps {
   word: WordRef | null
   /** Bookmarked sentences and words, tinted on the page. */
   marks: BookmarkMarks
+  /** Highlights by `Paragraph.idx`, drawn in their colours. */
+  highlights: ReadonlyMap<number, readonly ParaHighlight[]>
+  /** The highlight on the card, drawn stronger; null when there is none. */
+  activeHighlight: string | null
   /** Names the font, size and spacing in force (step 28); a change means every height is stale. */
   metrics: string
   /**
@@ -891,7 +1145,7 @@ const JUMP_INSET = 0.15
 /** A jump that has not found its sentence after this many renders gives up. */
 const JUMP_ATTEMPTS = 6
 
-function ChapterBody({ paragraphs, headings, sentences, highlight, uncertain, word, marks, metrics, target, onArrive, onPosition }: BodyProps) {
+function ChapterBody({ paragraphs, headings, sentences, highlight, uncertain, word, marks, highlights, activeHighlight, metrics, target, onArrive, onPosition }: BodyProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const topRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<HeightMap | null>(null)
@@ -1048,7 +1302,19 @@ function ChapterBody({ paragraphs, headings, sentences, highlight, uncertain, wo
   for (let i = range.start; i < Math.min(range.end, paragraphs.length); i++) {
     const row = paragraphs[i]
     items.push(
-      <Paragraph key={row.idx} pos={i} heading={headings.get(i)} row={row} sentences={sentences.get(row.idx)} highlight={highlight} uncertain={uncertain} word={word} marks={marks} />,
+      <Paragraph
+        key={row.idx}
+        pos={i}
+        heading={headings.get(i)}
+        row={row}
+        sentences={sentences.get(row.idx)}
+        highlight={highlight}
+        uncertain={uncertain}
+        word={word}
+        marks={marks}
+        highlights={highlights.get(row.idx)}
+        activeHighlight={activeHighlight}
+      />,
     )
   }
   return (
@@ -1074,21 +1340,34 @@ interface ParagraphProps {
   uncertain: ReadonlySet<number>
   word: WordRef | null
   marks: BookmarkMarks
+  /** The highlights that cross this paragraph, in its character offsets. */
+  highlights: readonly ParaHighlight[] | undefined
+  activeHighlight: string | null
 }
 
-function Paragraph({ pos, heading, row, sentences, highlight, uncertain, word, marks }: ParagraphProps) {
+function Paragraph({ pos, heading, row, sentences, highlight, uncertain, word, marks, highlights, activeHighlight }: ParagraphProps) {
   const runs = useMemo(() => runsOf(row.text, sentences ?? []), [row.text, sentences])
+  // The highlight on the card shows over any that overlap it.
+  const shown = useMemo(
+    () => (highlights === undefined || activeHighlight === null ? highlights : [...highlights].sort((a, b) => Number(b.id === activeHighlight) - Number(a.id === activeHighlight))),
+    [highlights, activeHighlight],
+  )
+  /** Where the run being drawn starts in the paragraph: what a highlight's offsets count from. */
+  let base = 0
   const para = (
     <p class={heading !== undefined ? 'para para--first' : 'para'} data-idx={pos} data-item={heading === undefined ? pos : undefined} data-para={row.idx}>
-      {runs.map((run) =>
-        run.sentenceIdx === null ? (
-          words(run.text, null, undefined)
+      {runs.map((run) => {
+        const start = base
+        base += run.text.length
+        const marked: Highlighting | undefined = shown === undefined ? undefined : { base: start, list: shown, active: activeHighlight }
+        return run.sentenceIdx === null ? (
+          words(run.text, null, undefined, marked)
         ) : (
           <span class={sentenceClass(run.sentenceIdx, highlight, uncertain, marks)} data-sentence={run.sentenceIdx}>
-            {words(run.text, word !== null && word.sentence === run.sentenceIdx ? word.offset : null, marks.words.get(run.sentenceIdx))}
+            {words(run.text, word !== null && word.sentence === run.sentenceIdx ? word.offset : null, marks.words.get(run.sentenceIdx), marked)}
           </span>
-        ),
-      )}
+        )
+      })}
     </p>
   )
   if (heading === undefined) return para
@@ -1113,17 +1392,49 @@ function sentenceClass(idx: number, highlight: ReadonlySet<number> | null, uncer
  * The tokens of a run: a `<span class="w">` per word carrying its offset in the run (what a tap
  * reports, and what the lookup needs to find the word in its sentence), plain text otherwise.
  * The word at `activeOffset`, if any, is the one on the card; words at `marked` offsets are bookmarked.
+ * Under a highlight a word carries its colour, and the text between words is wrapped so the
+ * colour runs on unbroken; the text is cut where a highlight starts or ends inside it.
  */
-function words(text: string, activeOffset: number | null, marked: ReadonlySet<number> | undefined) {
+function words(text: string, activeOffset: number | null, marked: ReadonlySet<number> | undefined, highlighting: Highlighting | undefined) {
   let pos = 0
-  return tokenize(text).map((t) => {
+  return tokenize(text).flatMap((t) => {
     const start = pos
     pos += t.text.length
-    if (!t.word) return t.text
-    return (
-      <span class={start === activeOffset ? 'w w--active' : marked?.has(start) === true ? 'w w--marked' : 'w'} data-o={start}>
+    const from = (highlighting?.base ?? 0) + start
+    if (!t.word) {
+      if (highlighting === undefined) return [t.text]
+      return pieces(highlighting.list, from, from + t.text.length).map((p) => {
+        const part = t.text.slice(p.from - from, p.to - from)
+        return p.highlight === undefined ? (
+          part
+        ) : (
+          <span class={highlightClass(p.highlight, highlighting.active)} data-hl={p.highlight.id}>
+            {part}
+          </span>
+        )
+      })
+    }
+    const under = highlighting === undefined ? undefined : overlapping(highlighting.list, from, from + t.text.length)
+    const cls = start === activeOffset ? 'w w--active' : marked?.has(start) === true ? 'w w--marked' : 'w'
+    return [
+      <span class={under === undefined ? cls : `${cls} ${highlightClass(under, highlighting!.active)}`} data-o={start} data-hl={under?.id}>
         {t.text}
-      </span>
-    )
+      </span>,
+    ]
   })
+}
+
+/** The highlights of the paragraph a run is in, and where the run starts in it. */
+interface Highlighting {
+  base: number
+  list: readonly ParaHighlight[]
+  /** The highlight on the card. */
+  active: string | null
+}
+
+function highlightClass(h: ParaHighlight, active: string | null): string {
+  let cls = `hl hl--${h.colour}`
+  if (h.noted) cls += ' hl--noted'
+  if (h.id === active) cls += ' hl--active'
+  return cls
 }

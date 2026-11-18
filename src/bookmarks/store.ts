@@ -1,6 +1,6 @@
 /**
  * Bookmarks in the `bookmarks` table (plan.md step 25, §1.7): one row per bookmark, the kind
- * and payload of `bookmarks/model.ts`, an empty note for now, the time it was made. A book's
+ * and payload of `bookmarks/model.ts`, a note (written on highlights only), the time it was made. A book's
  * bookmarks are few, so the Reader loads them all with one live query and finds the one a card
  * is on in memory (`findSentenceBookmark`, `findWordBookmark`); nothing is indexed beyond the
  * book. `deleteBook` in `store/books.ts` removes them with the book.
@@ -24,6 +24,19 @@ export async function addBookmark(bookId: string, entry: BookmarkEntry, db: Inte
     await markChanged(bookId, row.created, db)
   })
   return row
+}
+
+/** Change a highlight's colour or note; nothing happens when the row is gone or is not a highlight. */
+export async function updateHighlight(id: string, patch: { colour?: string; note?: string }, db: InterlinearDB = sharedDb()): Promise<void> {
+  await db.transaction('rw', [db.bookmarks, db.sync], async () => {
+    const row = await db.bookmarks.get(id)
+    if (row === undefined || row.type !== 'highlight') return
+    const colour = patch.colour ?? row.payload.colour
+    const note = patch.note ?? row.note
+    if (colour === row.payload.colour && note === row.note) return
+    await db.bookmarks.put({ ...row, note, payload: { ...row.payload, colour } })
+    await markChanged(row.bookId, Date.now(), db)
+  })
 }
 
 export async function removeBookmark(id: string, db: InterlinearDB = sharedDb()): Promise<void> {

@@ -195,18 +195,14 @@
    across line breaks thanks to the clone; sentences of uncertain beads a faint dotted underline.
    In word mode (step 24) the tapped word gets the highlight instead, and every sentence ends in
    a small chevron, the tap target for the sentence card now that the words themselves open the
-   word card (§1.6). A long-press on a sentence opens the repair card (step 20), so the browser's
-   own long-press behaviour, text selection and the iOS callout, is turned off on sentences; Copy
-   on the card covers copying. */
+   word card (§1.6). The text stays selectable: holding on it (a long-press, a drag with a mouse)
+   is how a stretch is picked for highlighting. */
 .sent {
   border-radius: 4px;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
   cursor: pointer;
   transition: background-color 160ms ease-out;
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
 }
 
 /* A bookmarked sentence: a faint tint (grey by default, `--mark-sentence` from Settings) that
@@ -253,6 +249,35 @@
 .w--marked {
   background-color: var(--mark-word, transparent);
   box-shadow: 0 0 0 1.5px var(--mark-word, transparent);
+}
+
+/* Highlights (`bookmarks/highlights.ts`): the words and the text between them each carry the
+   colour, square-edged so it runs on unbroken. One with a note is underlined; the one on the
+   card is drawn stronger. */
+.hl {
+  --hl: transparent;
+  background-color: var(--hl);
+  border-radius: 0;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  cursor: pointer;
+}
+
+.hl--yellow { --hl: light-dark(rgba(255, 214, 10, 0.5), rgba(255, 204, 0, 0.36)); }
+.hl--green { --hl: color-mix(in srgb, var(--c-green) 32%, transparent); }
+.hl--blue { --hl: color-mix(in srgb, var(--c-blue) 26%, transparent); }
+.hl--pink { --hl: color-mix(in srgb, var(--c-pink) 26%, transparent); }
+.hl--purple { --hl: color-mix(in srgb, var(--c-purple) 28%, transparent); }
+
+.hl--noted {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--fg) 45%, transparent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.22em;
+}
+
+.hl--active {
+  background-image: linear-gradient(color-mix(in srgb, var(--fg) 12%, transparent), color-mix(in srgb, var(--fg) 12%, transparent));
 }
 
 .w--active {
