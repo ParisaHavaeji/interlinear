@@ -273,7 +273,6 @@
   background: light-dark(var(--bg-elev), #2c2c2e);
 }
 
-
 /* Words and phrases in two tabs: a segmented control under the search field, as in the aA menu. */
 .bm-tabs {
   align-self: stretch;

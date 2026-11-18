@@ -17,7 +17,8 @@
  *
  * Words and phrases (sentence bookmarks) are kept apart in two tabs under the search field;
  * the search, the counts and the export all follow the tab on screen. The screen opens on
- * Words unless there are only phrases.
+ * Words unless there are only phrases, and on the tab last chosen after that, so coming back
+ * from a bookmark opened in the Reader lands on the same tab.
  */
 
 import { useMemo, useState } from 'preact/hooks'
@@ -46,6 +47,9 @@ const TABS: { kind: BookmarkKind; label: string }[] = [
   { kind: 'sentence', label: 'Phrases' },
 ]
 
+/** The tab chosen last, kept while the app is open: the screen is unmounted by a jump to the Reader. */
+let lastKind: BookmarkKind | null = null
+
 export function Bookmarks({ book, onBack }: Props) {
   const books = useBooks()
   const rows = useLiveQuery(() => (book === undefined ? db().bookmarks.toArray() : listBookmarks(book.id)), [book?.id])
@@ -59,7 +63,7 @@ export function Bookmarks({ book, onBack }: Props) {
   const counts = useMemo(() => kindCounts(searched), [searched])
   const totals = useMemo(() => kindCounts(groups), [groups])
   /** The tab chosen; null until one is, which means Words unless there are only phrases. */
-  const [chosenKind, setChosenKind] = useState<BookmarkKind | null>(null)
+  const [chosenKind, setChosenKind] = useState<BookmarkKind | null>(lastKind)
   const kind: BookmarkKind = chosenKind ?? (totals.word === 0 && totals.sentence > 0 ? 'sentence' : 'word')
   const shown = useMemo(() => filterKind(searched, kind), [searched, kind])
   const scoped = book === undefined ? undefined : books?.find((b) => b.id === book.id)
@@ -145,6 +149,7 @@ export function Bookmarks({ book, onBack }: Props) {
               key={t.kind}
               aria-selected={kind === t.kind}
               onClick={() => {
+                lastKind = t.kind
                 setChosenKind(t.kind)
                 setOpenId(null)
               }}

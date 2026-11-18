@@ -142,8 +142,9 @@
   color: var(--fg-2);
 }
 
-/* --- Article colours (plan.md step 24) ----------------------------------
-   One row per article, its label in the chosen colour, the swatches to pick from on the right. */
+/* --- Colours (plan.md step 24) -------------------------------------------
+   One row per article, its label in the chosen colour, and one per bookmark tint, the swatches
+   to pick from on the right. */
 
 .row--swatches {
   grid-template-columns: 76px 1fr;

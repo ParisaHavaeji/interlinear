@@ -20,7 +20,7 @@ const ARTICLE_ROWS: { gender: keyof ArticleColours; article: string }[] = [
 
 const MARK_ROWS: { kind: keyof MarkColours; label: string; name: string }[] = [
   { kind: 'word', label: 'Word', name: 'bookmarked words' },
-  { kind: 'sentence', label: 'Sentence', name: 'bookmarked sentences' },
+  { kind: 'sentence', label: 'Phrase', name: 'bookmarked phrases' },
 ]
 
 /**
@@ -28,8 +28,8 @@ const MARK_ROWS: { kind: keyof MarkColours; label: string; name: string }[] = [
  * progress, a Retry when it failed, and a check for a newer dictionary. Opening the screen also
  * starts the download when it has not started (a launch offline, say). Step 24 adds the colours
  * the word card gives der / die / das, now in a Colours group with the tints of bookmarked
- * words and sentences in the text (`bookmarks/marks.ts`). Step 36 puts the Account group first: Google sign-in,
- * which keeps the reading place and bookmarks on the server (`sync/browser.ts`); the group is
+ * words and phrases in the text (`bookmarks/marks.ts`). Step 36 puts the Account group first:
+ * Google sign-in, which keeps the reading place and bookmarks on the server (`sync/browser.ts`); the group is
  * not there in a build without a Supabase project. Step 37 adds Sync Books, a switch for the
  * books themselves, and Download All for the account's books not on this device yet.
  */
@@ -210,18 +210,7 @@ export function Settings({ onBack }: Props) {
               <span class={`row-label article-label--${colours[gender]}`} lang="de">
                 {article}
               </span>
-              <div class="swatches" role="radiogroup" aria-label={`Colour of ${article}`}>
-                {ARTICLE_COLOURS.map((c) => (
-                  <button
-                    type="button"
-                    class={`swatch swatch--${c.key}`}
-                    aria-label={c.label}
-                    aria-pressed={colours[gender] === c.key}
-                    title={c.label}
-                    onClick={() => setColour(gender, c.key)}
-                  />
-                ))}
-              </div>
+              <Swatches label={`Colour of ${article}`} value={colours[gender]} onPick={(c) => setColour(gender, c)} />
             </div>
           ))}
           {MARK_ROWS.map(({ kind, label, name }) => (
@@ -231,23 +220,12 @@ export function Settings({ onBack }: Props) {
                   {label}
                 </span>
               </span>
-              <div class="swatches" role="radiogroup" aria-label={`Colour of ${name}`}>
-                {ARTICLE_COLOURS.map((c) => (
-                  <button
-                    type="button"
-                    class={`swatch swatch--${c.key}`}
-                    aria-label={c.label}
-                    aria-pressed={marks[kind] === c.key}
-                    title={c.label}
-                    onClick={() => setMark(kind, c.key)}
-                  />
-                ))}
-              </div>
+              <Swatches label={`Colour of ${name}`} value={marks[kind]} onPick={(c) => setMark(kind, c)} />
             </div>
           ))}
         </div>
         <p class="group-footer">
-          The word card shows a noun’s article in its colour, so the gender is seen before it is read. A bookmarked word or sentence keeps a light tint of its
+          The word card shows a noun’s article in its colour, so the gender is seen before it is read. A bookmarked word or phrase keeps a light tint of its
           colour on the page; Plain leaves it unmarked.{' '}
           {customised && (
             <button type="button" class="link-btn" onClick={resetColours}>
@@ -256,6 +234,17 @@ export function Settings({ onBack }: Props) {
           )}
         </p>
       </main>
+    </div>
+  )
+}
+
+/** The palette as a row of swatches, the chosen one ringed. */
+function Swatches({ label, value, onPick }: { label: string; value: ArticleColour; onPick: (colour: ArticleColour) => void }) {
+  return (
+    <div class="swatches" role="radiogroup" aria-label={label}>
+      {ARTICLE_COLOURS.map((c) => (
+        <button type="button" class={`swatch swatch--${c.key}`} aria-label={c.label} aria-pressed={value === c.key} title={c.label} onClick={() => onPick(c.key)} />
+      ))}
     </div>
   )
 }
