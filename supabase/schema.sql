@@ -21,6 +21,9 @@ create table if not exists public.reading_state (
 -- and the user's token; the anon key alone matches no row.
 alter table public.reading_state enable row level security;
 
+-- New projects may not expose new tables to the Data API by default; the app needs these.
+grant select, insert, update, delete on public.reading_state to authenticated;
+
 drop policy if exists "own reading state" on public.reading_state;
 create policy "own reading state"
   on public.reading_state
