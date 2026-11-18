@@ -37,17 +37,36 @@ export function chromeAfterScroll(state: ChromeState, y: number, options: Chrome
   return y < state.anchor ? { hidden: false, anchor: y } : state
 }
 
-/** Where the reader is in the book: the share scrolled, and the screens still to go. */
+/**
+ * Where the reader is in the book. The book scrolls as one page, so a "page" is a screenful:
+ * the page number is the screen the viewport's top edge is on, counted from the top, and the
+ * last page is reached when the end of the book is on screen.
+ */
 export interface ReadingPosition {
   /** 0 at the top, 1 once the end of the page is on screen. */
   fraction: number
-  /** Viewport-heights of page below the one on screen, rounded up; 0 on the last screen. */
+  /** Pages after the one on screen; 0 on the last. */
   pagesLeft: number
+  /** The page on screen, from 1. */
+  page: number
+  /** Pages in the book at this screen size and type. */
+  pages: number
 }
 
 export function readingPosition(scrollY: number, scrollHeight: number, viewport: number): ReadingPosition {
   const max = scrollHeight - viewport
-  if (max <= 0 || viewport <= 0) return { fraction: 1, pagesLeft: 0 }
+  if (max <= 0 || viewport <= 0) return { fraction: 1, pagesLeft: 0, page: 1, pages: 1 }
   const y = Math.min(Math.max(0, scrollY), max)
-  return { fraction: y / max, pagesLeft: Math.max(0, Math.ceil((max - y) / viewport)) }
+  const pages = Math.ceil(max / viewport) + 1
+  const page = y >= max - 1 ? pages : Math.min(pages, Math.floor(y / viewport) + 1)
+  return { fraction: y / max, pagesLeft: pages - page, page, pages }
+}
+
+/**
+ * Screens still to scroll before the chapter's end is on screen: `end` is where the chapter
+ * ends and `y` where the viewport starts, both measured from the same origin. 0 once it shows.
+ */
+export function pagesLeftInChapter(end: number, y: number, viewport: number): number {
+  if (viewport <= 0) return 0
+  return Math.max(0, Math.ceil((end - y - viewport) / viewport))
 }

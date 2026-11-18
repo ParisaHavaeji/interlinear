@@ -1,6 +1,6 @@
 // The Books chrome's arithmetic (plan.md step 17): hide on scroll down, show on scroll up, pages left.
 import { describe, expect, it } from 'vitest'
-import { chromeAfterScroll, readingPosition, SHOWN } from '../src/reader/chrome.ts'
+import { chromeAfterScroll, pagesLeftInChapter, readingPosition, SHOWN } from '../src/reader/chrome.ts'
 
 describe('chromeAfterScroll', () => {
   const scroll = (ys: number[]) => ys.reduce((s, y) => chromeAfterScroll(s, y), SHOWN)
@@ -33,15 +33,34 @@ describe('chromeAfterScroll', () => {
 
 describe('readingPosition', () => {
   it('counts the screens below the viewport and the share scrolled', () => {
-    expect(readingPosition(0, 3000, 800)).toEqual({ fraction: 0, pagesLeft: 3 })
-    expect(readingPosition(1100, 3000, 800)).toEqual({ fraction: 0.5, pagesLeft: 2 })
-    expect(readingPosition(2200, 3000, 800)).toEqual({ fraction: 1, pagesLeft: 0 })
+    expect(readingPosition(0, 3000, 800)).toEqual({ fraction: 0, pagesLeft: 3, page: 1, pages: 4 })
+    expect(readingPosition(1100, 3000, 800)).toEqual({ fraction: 0.5, pagesLeft: 2, page: 2, pages: 4 })
+    expect(readingPosition(2200, 3000, 800)).toEqual({ fraction: 1, pagesLeft: 0, page: 4, pages: 4 })
     expect(readingPosition(2100, 3000, 800).pagesLeft).toBe(1)
   })
 
   it('treats a page that fits the viewport as finished', () => {
-    expect(readingPosition(0, 500, 800)).toEqual({ fraction: 1, pagesLeft: 0 })
-    expect(readingPosition(-20, 3000, 800)).toEqual({ fraction: 0, pagesLeft: 3 })
-    expect(readingPosition(9999, 3000, 800)).toEqual({ fraction: 1, pagesLeft: 0 })
+    expect(readingPosition(0, 500, 800)).toEqual({ fraction: 1, pagesLeft: 0, page: 1, pages: 1 })
+    expect(readingPosition(-20, 3000, 800)).toEqual({ fraction: 0, pagesLeft: 3, page: 1, pages: 4 })
+    expect(readingPosition(9999, 3000, 800)).toEqual({ fraction: 1, pagesLeft: 0, page: 4, pages: 4 })
+  })
+
+  it('numbers the pages without skipping or repeating as the book scrolls', () => {
+    let last = 1
+    for (let y = 0; y <= 2200; y += 50) {
+      const { page } = readingPosition(y, 3000, 800)
+      expect(page === last || page === last + 1).toBe(true)
+      last = page
+    }
+    expect(last).toBe(4)
+  })
+})
+
+describe('pagesLeftInChapter', () => {
+  it('counts the screens until the chapter end is on screen', () => {
+    expect(pagesLeftInChapter(3000, 0, 800)).toBe(3)
+    expect(pagesLeftInChapter(3000, 1400, 800)).toBe(1)
+    expect(pagesLeftInChapter(3000, 2200, 800)).toBe(0)
+    expect(pagesLeftInChapter(3000, 2900, 800)).toBe(0)
   })
 })

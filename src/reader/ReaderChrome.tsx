@@ -1,7 +1,7 @@
 /**
  * The Books chrome around the page (plan.md step 17): a top bar with back, contents, title,
- * aA, search and bookmark, and a footer with the book's progress line and the chapter on
- * screen. Both slide away as the reader scrolls down and come back on the way up
+ * aA, search and bookmark, and a footer with the page number and the pages left in the
+ * chapter. Both slide away as the reader scrolls down and come back on the way up
  * (`useChrome`, over the arithmetic in `chrome.ts`). The ribbon opens the book's bookmarks
  * (step 26); bookmarks themselves are made from the bottom card (step 25). aA opens the
  * appearance menu (step 28, `AppearanceMenu.tsx`). Search is a later step; its button is in
@@ -25,7 +25,7 @@ export interface Chrome {
  */
 export function useChrome(resetKey: unknown, page: RefObject<HTMLElement | null>): Chrome {
   const [state, setState] = useState<ChromeState>(SHOWN)
-  const [position, setPosition] = useState<ReadingPosition>({ fraction: 0, pagesLeft: 0 })
+  const [position, setPosition] = useState<ReadingPosition>({ fraction: 0, pagesLeft: 0, page: 1, pages: 1 })
   useEffect(() => {
     let frame = 0
     const measure = () => {
@@ -33,7 +33,7 @@ export function useChrome(resetKey: unknown, page: RefObject<HTMLElement | null>
       setState((s) => chromeAfterScroll(s, window.scrollY))
       setPosition((p) => {
         const next = readingPosition(window.scrollY, document.documentElement.scrollHeight, window.innerHeight)
-        return next.fraction === p.fraction && next.pagesLeft === p.pagesLeft ? p : next
+        return next.fraction === p.fraction && next.page === p.page && next.pages === p.pages ? p : next
       })
     }
     const schedule = () => {
@@ -118,27 +118,28 @@ export function ReaderBar({ title, onBack, onContents, onBookmarks, onAppearance
 
 interface FooterProps {
   position: ReadingPosition
-  /** The chapter on screen, "3 of 12". */
-  chapter: string
+  /** Screens left before the chapter on screen ends; null while that is not known. */
+  chapterLeft: number | null
 }
 
-export function ReaderFooter({ position, chapter }: FooterProps) {
-  const percent = Math.round(position.fraction * 100)
+/**
+ * The page number, as Books shows it: with the chrome up, "12 of 345" over "4 pages left in
+ * chapter" at the foot of the screen; while reading, only the bare page number stays, small and
+ * grey in the same spot.
+ */
+export function ReaderFooter({ position, chapterLeft }: FooterProps) {
+  const left = chapterLeft === null ? null : chapterLeft === 0 ? 'Last page in chapter' : chapterLeft === 1 ? '1 page left in chapter' : `${chapterLeft} pages left in chapter`
   return (
-    <footer class="reader-footer">
-      <div
-        class="reader-progress"
-        role="progressbar"
-        aria-label="Position in book"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-      >
-        <div class="reader-progress-bar" style={{ width: `${percent}%` }} />
+    <>
+      <div class="reader-pagenum" aria-hidden="true">
+        {position.page}
       </div>
-      <div class="reader-footer-text">
-        <span class="reader-footer-chapter">{chapter}</span>
-      </div>
-    </footer>
+      <footer class="reader-footer" aria-label={`Page ${position.page} of ${position.pages}`}>
+        <div class="reader-footer-page">
+          {position.page} of {position.pages}
+        </div>
+        {left !== null && <div class="reader-footer-left">{left}</div>}
+      </footer>
+    </>
   )
 }

@@ -14,7 +14,7 @@
  * Reached at `#/read/<bookId>[/<chapter>]`: the chapter is where the book opens, and the route
  * follows the chapter on screen as the page scrolls. The Books chrome of step 17
  * (`ReaderChrome.tsx`) frames the page: a top bar that slides away as the reader scrolls down, a
- * footer with the book's progress line and the chapter on screen, and the chapter list sheet
+ * footer with the page number and the pages left in the chapter, and the chapter list sheet
  * (`ChaptersSheet.tsx`), which scrolls to the chapter picked and also holds the
  * chapter-mapping corrections of plan §1.1b. A book that is not aligned yet still opens:
  * its paragraphs render without sentence spans, as one chapter, and the live query swaps the
@@ -119,6 +119,7 @@ import { ChaptersSheet } from './ChaptersSheet.tsx'
 import { chapterAt, flowOf, flowPosition } from './flow.ts'
 import { HighlightCardBody, HighlightCardHeader } from './HighlightCard.tsx'
 import { bookFraction, samePlace, type ReadingPlace } from './progress.ts'
+import { pagesLeftInChapter } from './chrome.ts'
 import { ReaderBar, ReaderFooter, useChrome } from './ReaderChrome.tsx'
 import { RepairCardBody, RepairCardHeader } from './RepairCard.tsx'
 import { clearSelection, hasSelection, isEditing, selectElement, selectionRange, selectionRect } from './selection.ts'
@@ -460,7 +461,10 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     pendingRow.current = null
     saveProgress({ ...row, updated: Date.now() }).catch((err: unknown) => console.error('could not save the reading progress', err))
   }
+  /** Screens left in the chapter on screen, for the footer; null until the body has reported. */
+  const [chapterLeft, setChapterLeft] = useState<number | null>(null)
   const onPosition = (pos: ViewportPlace) => {
+    setChapterLeft(pos.chapterLeft)
     if (data == null || chapters === null || flow === null || jump !== null || opening !== null || !restored) return
     const at = chapterAt(flow.starts, pos.para)
     setVisible(at)
@@ -947,7 +951,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
           onPosition={onPosition}
         />
       </main>
-      <ReaderFooter position={chrome.position} chapter={`${idx + 1} of ${chapters.length}`} />
+      <ReaderFooter position={chrome.position} chapterLeft={ready && chapters.length > 1 ? chapterLeft : null} />
       {ready && (
         <ChaptersSheet open={contents} book={data.book} current={idx} onClose={() => setContents(false)} onChapter={goToChapter} />
       )}
@@ -1140,6 +1144,8 @@ export interface ViewportPlace {
   para: number
   fraction: number
   end: boolean
+  /** Screens still to scroll before the end of that paragraph's chapter is on screen. */
+  chapterLeft: number
 }
 
 /** Share of the viewport, under the top bar, left above a sentence jumped to. */
@@ -1162,6 +1168,10 @@ function ChapterBody({ paragraphs, headings, sentences, highlight, uncertain, wo
   arriveRef.current = onArrive
   const positionRef = useRef(onPosition)
   positionRef.current = onPosition
+  /** Where each chapter starts, by position on the page, in order. */
+  const starts = useMemo(() => [...headings.keys()].sort((a, b) => a - b), [headings])
+  const startsRef = useRef(starts)
+  startsRef.current = starts
 
   /** Recompute the window from the current scroll position, and report where the viewport is. */
   const update = () => {
@@ -1179,7 +1189,11 @@ function ChapterBody({ paragraphs, headings, sentences, highlight, uncertain, wo
       const para = y < 0 ? 0 : map.indexAt(y + 1)
       const height = map.heightOf(para)
       const fraction = y < 0 || height <= 0 ? 0 : Math.min(1, Math.max(0, (y - map.offsetOf(para)) / height))
-      positionRef.current({ para, fraction, end: rect.bottom <= viewport + 1 })
+      // The chapter ends where the next heading stands, or with the book.
+      const starts = startsRef.current
+      const next = starts[chapterAt(starts, para) + 1]
+      const chapterEnd = next === undefined ? map.total() : map.offsetOf(next)
+      positionRef.current({ para, fraction, end: rect.bottom <= viewport + 1, chapterLeft: pagesLeftInChapter(chapterEnd, Math.max(0, y), viewport) })
     }
   }
 
