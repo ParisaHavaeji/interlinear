@@ -146,12 +146,24 @@
    One row per article, its label in the chosen colour, the swatches to pick from on the right. */
 
 .row--swatches {
-  grid-template-columns: 56px 1fr;
+  grid-template-columns: 76px 1fr;
 }
 
 .row--swatches .row-label {
   font-family: var(--font-serif);
   font-weight: 600;
+}
+
+/* The bookmark tints' rows: the label drawn with the tint as the page draws it. */
+.row--swatches .row-label--mark {
+  font-weight: 400;
+  font-size: 15px;
+}
+
+.mark-sample {
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin-left: -3px;
 }
 
 .swatches {

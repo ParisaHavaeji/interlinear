@@ -2,7 +2,8 @@ import { useEffect, useState } from 'preact/hooks'
 import { dictStateLabel, formatBytes, percentOf } from '../dict/download.ts'
 import { ensureDictionary, useDictState } from '../dict/installer.ts'
 import { ARTICLE_COLOURS, DEFAULT_ARTICLE_COLOURS, sanitizeArticleColours, type ArticleColour, type ArticleColours } from '../reader/word.ts'
-import { ARTICLE_COLOURS_KEY, setSetting, useSetting } from '../store/settings.ts'
+import { DEFAULT_MARK_COLOURS, markTint, sanitizeMarkColours, type MarkColours } from '../bookmarks/marks.ts'
+import { ARTICLE_COLOURS_KEY, MARK_COLOURS_KEY, setSetting, useSetting } from '../store/settings.ts'
 import { downloadAll, setBookSync, signInWithGoogle, signOut, syncNow, useAccountState } from '../sync/browser.ts'
 import { accountRowLabel, initialOf } from '../sync/label.ts'
 import './settings.css'
@@ -17,11 +18,17 @@ const ARTICLE_ROWS: { gender: keyof ArticleColours; article: string }[] = [
   { gender: 'n', article: 'das' },
 ]
 
+const MARK_ROWS: { kind: keyof MarkColours; label: string; name: string }[] = [
+  { kind: 'word', label: 'Word', name: 'bookmarked words' },
+  { kind: 'sentence', label: 'Sentence', name: 'bookmarked sentences' },
+]
+
 /**
  * Settings (plan.md step 23): the dictionary's place on this device, with the download's
  * progress, a Retry when it failed, and a check for a newer dictionary. Opening the screen also
  * starts the download when it has not started (a launch offline, say). Step 24 adds the colours
- * the word card gives der / die / das. Step 36 puts the Account group first: Google sign-in,
+ * the word card gives der / die / das, now in a Colours group with the tints of bookmarked
+ * words and sentences in the text (`bookmarks/marks.ts`). Step 36 puts the Account group first: Google sign-in,
  * which keeps the reading place and bookmarks on the server (`sync/browser.ts`); the group is
  * not there in a build without a Supabase project. Step 37 adds Sync Books, a switch for the
  * books themselves, and Download All for the account's books not on this device yet.
@@ -35,7 +42,15 @@ export function Settings({ onBack }: Props) {
   const remoteBytes = account.remoteBooks.reduce((sum, b) => sum + b.size, 0)
   const colours = useSetting(ARTICLE_COLOURS_KEY, sanitizeArticleColours)
   const setColour = (gender: keyof ArticleColours, colour: ArticleColour) => void setSetting(ARTICLE_COLOURS_KEY, { ...colours, [gender]: colour })
-  const customised = (['m', 'f', 'n'] as const).some((g) => colours[g] !== DEFAULT_ARTICLE_COLOURS[g])
+  const marks = useSetting(MARK_COLOURS_KEY, sanitizeMarkColours)
+  const setMark = (kind: keyof MarkColours, colour: ArticleColour) => void setSetting(MARK_COLOURS_KEY, { ...marks, [kind]: colour })
+  const customised =
+    (['m', 'f', 'n'] as const).some((g) => colours[g] !== DEFAULT_ARTICLE_COLOURS[g]) ||
+    (['word', 'sentence'] as const).some((k) => marks[k] !== DEFAULT_MARK_COLOURS[k])
+  const resetColours = () => {
+    void setSetting(ARTICLE_COLOURS_KEY, DEFAULT_ARTICLE_COLOURS)
+    void setSetting(MARK_COLOURS_KEY, DEFAULT_MARK_COLOURS)
+  }
 
   useEffect(() => {
     void ensureDictionary()
@@ -188,7 +203,7 @@ export function Settings({ onBack }: Props) {
           )}
         </p>
 
-        <h2 class="group-title">Articles</h2>
+        <h2 class="group-title">Colours</h2>
         <div class="group">
           {ARTICLE_ROWS.map(({ gender, article }) => (
             <div class="row row--static row--swatches" key={gender}>
@@ -209,11 +224,33 @@ export function Settings({ onBack }: Props) {
               </div>
             </div>
           ))}
+          {MARK_ROWS.map(({ kind, label, name }) => (
+            <div class="row row--static row--swatches" key={kind}>
+              <span class="row-label row-label--mark">
+                <span class="mark-sample" style={{ backgroundColor: markTint(kind, marks[kind]) }}>
+                  {label}
+                </span>
+              </span>
+              <div class="swatches" role="radiogroup" aria-label={`Colour of ${name}`}>
+                {ARTICLE_COLOURS.map((c) => (
+                  <button
+                    type="button"
+                    class={`swatch swatch--${c.key}`}
+                    aria-label={c.label}
+                    aria-pressed={marks[kind] === c.key}
+                    title={c.label}
+                    onClick={() => setMark(kind, c.key)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
         <p class="group-footer">
-          The word card shows a noun’s article in these colours, so the gender is seen before it is read.{' '}
+          The word card shows a noun’s article in its colour, so the gender is seen before it is read. A bookmarked word or sentence keeps a light tint of its
+          colour on the page; Plain leaves it unmarked.{' '}
           {customised && (
-            <button type="button" class="link-btn" onClick={() => void setSetting(ARTICLE_COLOURS_KEY, DEFAULT_ARTICLE_COLOURS)}>
+            <button type="button" class="link-btn" onClick={resetColours}>
               Reset
             </button>
           )}

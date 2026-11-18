@@ -10,6 +10,8 @@ import { db } from './db.ts'
 
 export const ARTICLE_COLOURS_KEY = 'articleColours'
 export const APPEARANCE_KEY = 'appearance'
+/** The tints of bookmarked words and sentences in the text (`bookmarks/marks.ts`). */
+export const MARK_COLOURS_KEY = 'markColours'
 
 /** The stored value of a setting, or `fallback` when there is none. */
 export async function getSetting<T>(key: string, sanitize: (value: unknown) => T): Promise<T> {

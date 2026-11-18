@@ -40,7 +40,9 @@
  * Bookmark on either card (step 25, §1.7) saves what the card shows (`bookmarks/model.ts`: the
  * bead with both texts, or the word with its headword and sentence) to the `bookmarks` table
  * (`bookmarks/store.ts`) and removes it on a second tap; the book's bookmarks are loaded live,
- * so the pill reads "Bookmarked" for a bead or word that has one.
+ * so the pill reads "Bookmarked" for a bead or word that has one. Bookmarks are also marked in
+ * the text (`bookmarks/marks.ts`): a word with a light blue tint, a sentence with a light grey
+ * one, both colours a setting.
  *
  * The ribbon in the top bar opens the book's bookmarks (step 26, `app/Bookmarks.tsx`); a tap
  * there comes back as `#/read/<bookId>/<chapter>/<bookmarkId>`. The bookmark is found in the
@@ -72,6 +74,7 @@ import { getParagraphs } from '../store/books.ts'
 import { db, type Book, type BookmarkRow, type ParagraphRow, type ProgressRow } from '../store/db.ts'
 import { applyRepair, BlockIndex, describeBead, type RepairOp } from '../align/repair.ts'
 import { locateBookmark } from '../bookmarks/locate.ts'
+import { bookmarkMarks, markStyle, NO_MARKS, sanitizeMarkColours, type BookmarkMarks } from '../bookmarks/marks.ts'
 import { findSentenceBookmark, findWordBookmark, sentenceBookmark, wordBookmark } from '../bookmarks/model.ts'
 import { addBookmark, listBookmarks, removeBookmark } from '../bookmarks/store.ts'
 import { useDictState } from '../dict/installer.ts'
@@ -79,7 +82,7 @@ import type { LookupResult } from '../dict/lookup.ts'
 import { dictionary } from '../dict/shards.ts'
 import { useLiveQuery } from '../store/hooks.ts'
 import { getProgress, saveProgress } from '../store/progress.ts'
-import { APPEARANCE_KEY, ARTICLE_COLOURS_KEY, setSetting, useSetting } from '../store/settings.ts'
+import { APPEARANCE_KEY, ARTICLE_COLOURS_KEY, MARK_COLOURS_KEY, setSetting, useSetting } from '../store/settings.ts'
 import { BottomCard } from '../ui/BottomCard.tsx'
 import { syncThemeColor } from '../pwa/theme-color.ts'
 import { type Appearance, appearanceStyle, metricsKey, sanitizeAppearance, themeAttribute } from './appearance.ts'
@@ -190,6 +193,9 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
   /** The book's bookmarks (step 25), live, so the cards show which bead or word has one; undefined until loaded. */
   const bookmarkRows = useLiveQuery(() => listBookmarks(bookId), [bookId])
   const bookmarks = bookmarkRows ?? NO_BOOKMARKS
+  /** Bookmarked sentences and words as they sit in the text now, tinted on the page. */
+  const marks = useMemo(() => (data == null ? NO_MARKS : bookmarkMarks(bookmarks, data.text)), [bookmarks, data])
+  const markColours = useSetting(MARK_COLOURS_KEY, sanitizeMarkColours)
 
   // Where the book was last read (step 29), read once when the Reader opens: the chapter to show
   // when the route names none, and the place within it to scroll back to. Undefined while
@@ -287,7 +293,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
     void setSetting(APPEARANCE_KEY, next)
   }
   const [appearanceOpen, setAppearanceOpen] = useState(false)
-  const pageStyle = appearanceStyle(appearance)
+  const pageStyle = `${appearanceStyle(appearance)}; ${markStyle(markColours)}`
   useEffect(() => {
     const root = document.documentElement
     const theme = themeAttribute(appearance.theme)
@@ -636,6 +642,7 @@ export function Reader({ bookId, chapter, at, onBack, onChapter, onBookmarks, on
           highlight={highlight}
           uncertain={uncertain}
           word={word}
+          marks={marks}
           metrics={metricsKey(appearance)}
           target={
             jump !== null
@@ -785,6 +792,8 @@ interface BodyProps {
   uncertain: ReadonlySet<number>
   /** The word on the card (step 24), highlighted on the page; null in the other modes. */
   word: WordRef | null
+  /** Bookmarked sentences and words, tinted on the page. */
+  marks: BookmarkMarks
   /** Names the font, size and spacing in force (step 28); a change means every height is stale. */
   metrics: string
   /**
@@ -812,7 +821,7 @@ const JUMP_INSET = 0.15
 /** A jump that has not found its sentence after this many renders gives up. */
 const JUMP_ATTEMPTS = 6
 
-function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, metrics, target, onArrive, onPosition }: BodyProps) {
+function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, marks, metrics, target, onArrive, onPosition }: BodyProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const topRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<HeightMap | null>(null)
@@ -967,7 +976,7 @@ function ChapterBody({ paragraphs, sentences, highlight, uncertain, word, metric
   const items = []
   for (let i = range.start; i < Math.min(range.end, paragraphs.length); i++) {
     const row = paragraphs[i]
-    items.push(<Paragraph key={row.idx} pos={i} row={row} sentences={sentences.get(row.idx)} highlight={highlight} uncertain={uncertain} word={word} />)
+    items.push(<Paragraph key={row.idx} pos={i} row={row} sentences={sentences.get(row.idx)} highlight={highlight} uncertain={uncertain} word={word} marks={marks} />)
   }
   return (
     <div class="chapter-body" ref={listRef}>
@@ -989,18 +998,19 @@ interface ParagraphProps {
   highlight: ReadonlySet<number> | null
   uncertain: ReadonlySet<number>
   word: WordRef | null
+  marks: BookmarkMarks
 }
 
-function Paragraph({ pos, row, sentences, highlight, uncertain, word }: ParagraphProps) {
+function Paragraph({ pos, row, sentences, highlight, uncertain, word, marks }: ParagraphProps) {
   const runs = useMemo(() => runsOf(row.text, sentences ?? []), [row.text, sentences])
   return (
     <p class={pos === 0 ? 'para para--first' : 'para'} data-idx={pos} data-para={row.idx}>
       {runs.map((run) =>
         run.sentenceIdx === null ? (
-          words(run.text, null)
+          words(run.text, null, undefined)
         ) : (
-          <span class={sentenceClass(run.sentenceIdx, highlight, uncertain)} data-sentence={run.sentenceIdx}>
-            {words(run.text, word !== null && word.sentence === run.sentenceIdx ? word.offset : null)}
+          <span class={sentenceClass(run.sentenceIdx, highlight, uncertain, marks)} data-sentence={run.sentenceIdx}>
+            {words(run.text, word !== null && word.sentence === run.sentenceIdx ? word.offset : null, marks.words.get(run.sentenceIdx))}
           </span>
         ),
       )}
@@ -1008,8 +1018,9 @@ function Paragraph({ pos, row, sentences, highlight, uncertain, word }: Paragrap
   )
 }
 
-function sentenceClass(idx: number, highlight: ReadonlySet<number> | null, uncertain: ReadonlySet<number>): string {
+function sentenceClass(idx: number, highlight: ReadonlySet<number> | null, uncertain: ReadonlySet<number>, marks: BookmarkMarks): string {
   let cls = 'sent'
+  if (marks.sentences.has(idx)) cls += ' sent--marked'
   if (highlight !== null && highlight.has(idx)) cls += ' sent--active'
   if (uncertain.has(idx)) cls += ' sent--uncertain'
   return cls
@@ -1018,16 +1029,16 @@ function sentenceClass(idx: number, highlight: ReadonlySet<number> | null, uncer
 /**
  * The tokens of a run: a `<span class="w">` per word carrying its offset in the run (what a tap
  * reports, and what the lookup needs to find the word in its sentence), plain text otherwise.
- * The word at `activeOffset`, if any, is the one on the card.
+ * The word at `activeOffset`, if any, is the one on the card; words at `marked` offsets are bookmarked.
  */
-function words(text: string, activeOffset: number | null) {
+function words(text: string, activeOffset: number | null, marked: ReadonlySet<number> | undefined) {
   let pos = 0
   return tokenize(text).map((t) => {
     const start = pos
     pos += t.text.length
     if (!t.word) return t.text
     return (
-      <span class={start === activeOffset ? 'w w--active' : 'w'} data-o={start}>
+      <span class={start === activeOffset ? 'w w--active' : marked?.has(start) === true ? 'w w--marked' : 'w'} data-o={start}>
         {t.text}
       </span>
     )

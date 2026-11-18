@@ -202,6 +202,12 @@
   user-select: none;
 }
 
+/* A bookmarked sentence: a faint tint (grey by default, `--mark-sentence` from Settings) that
+   the card's highlight covers while the card is open on it. */
+.sent--marked {
+  background-color: var(--mark-sentence, transparent);
+}
+
 .sent--active {
   background-color: var(--highlight);
 }
@@ -234,6 +240,12 @@
 .w {
   border-radius: 3px;
   transition: background-color 160ms ease-out;
+}
+
+/* A bookmarked word: a faint tint (blue by default, `--mark-word`), over its sentence's. */
+.w--marked {
+  background-color: var(--mark-word, transparent);
+  box-shadow: 0 0 0 1.5px var(--mark-word, transparent);
 }
 
 .w--active {
