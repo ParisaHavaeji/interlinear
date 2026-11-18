@@ -350,6 +350,59 @@ Each step ends in something you can open in a browser and check.
     Books stay on the device. No Account group in a build without a project.
     **Check:** sign in from the installed app on the phone; read on the Mac, open the same
     book on the phone at the same place.
+37. Book sync: a book added on one device appears on every device signed in to the same
+    account, aligned, at the place it was left. Built 2026-11-18 (decision 28); the phone and
+    laptop check waits for `supabase/schema.sql` to be run again on the project.
+    - **What travels:** the step-14 bundle, which already holds everything `jobs.ts` saves
+      (book record, both texts, sentences, beads, chapter edits), so the other device reads it
+      at once without aligning. Gzipped with `CompressionStream` before upload (Demian's ~1 MB
+      bundle shrinks to roughly a third); `decodeShard`'s gzip sniffing already shows the way
+      back. The EPUB/txt files themselves are not uploaded: the bundle is the book.
+    - **Where:** a private Supabase Storage bucket `books`, one object per user and book at
+      `<user id>/<content key>.interlinear.json.gz`, so the path is the same content key that
+      `reading_state` uses and a re-import on any device lands on the same object. Row-level
+      security on `storage.objects` lets a user read, write and delete only under their own id
+      (`(storage.foldername(name))[1] = auth.uid()::text`); the anon key alone sees nothing.
+      Added to `supabase/schema.sql` with the bucket's 50 MB file limit. The free plan's 1 GB
+      holds several hundred novels.
+    - **Server side of a book:** two new nullable columns on `reading_state`, `bundle_size`
+      and `bundle_at` (Unix ms of the uploaded bundle), so the stamps pull of step 36 also tells
+      a device which books exist in the account and whether its copy is outdated. A book with a
+      bundle and no reading yet gets a row with `progress` null and no bookmarks.
+    - **Client:** `SupabaseClient` gains `upload(path, bytes)` (`POST
+      /storage/v1/object/books/<path>` with `x-upsert: true`), `download(path)` (`GET
+      /storage/v1/object/authenticated/books/<path>`) and `remove(path)`, on the same `fetch`
+      seam so the tests' fake grows three routes. `Remote` gains the same three, and the Map
+      remote of the tests keeps blobs.
+    - **Upload:** the engine uploads a book when it has no `bundle_at` on the server or the
+      book's alignment changed after it (a new `bundled` stamp on the `sync` row, set from
+      `alignment.updated`; repairs and chapter edits move it, reading does not). It runs after
+      the reading-state push, one book at a time, only for books whose alignment is `ready`, so
+      a half-aligned book is never shipped. Books already in the library upload on the first
+      pull after this ships.
+    - **Download:** the Library shows the account's books that are not on this device as
+      tiles under the shelf ("In your account": generated cover, title, size, a cloud badge);
+      a tap downloads, `parseBundle` + `importBundle` (keeping the id, setting `key` from the
+      path so it is not hashed again), then applies the pulled reading state and opens it at
+      that place. On demand rather than automatic: a phone on cellular should not pull a
+      library it did not ask for. A **Download All** row in Settings' Account group covers the
+      first setup of a new device. Downloaded books are precached like any other (IndexedDB),
+      so they read offline afterwards.
+    - **Delete:** the Library's delete sheet gets a second choice, "Delete from this device"
+      (as now: the cloud copy and reading state stay) or "Delete everywhere" (removes the
+      object and the `reading_state` row too; the other devices drop the tile on their next
+      pull but keep a copy they already downloaded). Signing out removes nothing.
+    - **Off switch:** a "Sync books" toggle in the Account group, on by default; off, only the
+      reading state syncs, as in step 36, and nothing is uploaded.
+    - **Privacy:** the bucket is private to the account. The books are the reader's own files
+      kept for their own reading, as on the device; nothing is shared or listed publicly.
+    - **Tests:** engine against the Map remote (upload once, re-upload after a repair, skip an
+      unaligned book, list remote-only books, delete everywhere); bundle gzip round trip;
+      client routes against the fake fetch; RLS checked by hand with a second account.
+    **Check:** add Demian on the laptop; on the phone the tile appears under "In your
+    account", downloads, opens aligned at the laptop's place with its bookmark; a repair on the
+    phone reaches the laptop's copy; "Delete everywhere" on one device removes the tile on the
+    other.
 
 ---
 
@@ -385,6 +438,7 @@ Each step ends in something you can open in a browser and check.
 | 25 | Language check at import (first part of step 33) | The Add Book sheet guesses each picked file's language (`import/language.ts`, DOM-free): the EPUB package code when it is German or English, else a tally of thirty common function words of each language over the first 20,000 characters, decided only when the winner has twenty hits and twice the other's, so an odd text gets no warning rather than a wrong one. Two files in each other's slots (the Demian of 2026-11-10 on the live site, read as English ever since) get a red footer with a Swap button and no Save until swapped; one file in the other language gets a warning and Save stays, since the guess can be wrong. The rest of step 33 (bad EPUB, empty files, quota, dictionary missing) is still to do. |
 | 26 | Performance pass (step 32) | Lighthouse 13 has no PWA category any more (it went in 12), so the mark is its four, mobile preset against `vite preview` on the Library with an empty shelf: performance 100 / accessibility 100 / best practices 100 / SEO 100 (from 100 / 87 / 100 / 91), FCP 0.8 s and LCP 1.6 s under its simulated slow 4G and 4× CPU slowdown, the same on a second run in the same profile with the service worker in place. What changed: the main chunk was 72% unused on the Library, so the Reader is a lazy route (`lazy` + `Suspense` in `app.tsx`; its own JS and CSS chunk, loaded when a book opens) and JSZip is imported inside `parseEpub` on the first EPUB, which took the shell from 381 KB / 125 KB gzipped of script and 36 KB of CSS to 234 KB / 80 KB and 20 KB; `shellFiles` in `tools/pwa-sw.ts` now follows dynamic imports too, stopping at the chunks `isPrecachable` rules out, so both chunks are precached and a book opens and an EPUB imports offline from the first launch on. The dictionary installer told its listeners about every one of the ~560 shards, and the hook re-renders the whole app, so `setProgress` now notifies at most every 250 ms (phase changes still at once): that was most of the main thread's work on a first launch. Accessibility: `maximum-scale=1, user-scalable=no` left the viewport meta (iOS Safari ignored it anyway, `touch-action: manipulation` on the body already stops the double-tap zoom, and pinch zoom in an installed app is the reader's right), and the primary button's text is black on Books' orange, white having read at 2:1. SEO: `public/robots.txt`, since the preview answered `/robots.txt` with the page. And `<meta name="color-scheme" content="light dark">`, so the first paint before the stylesheet follows the system scheme. First paint under 1 s on an iPhone is not measured here (no device in this session): the shell is one document, one stylesheet and two scripts from the service worker's cache, 81 KB gzipped of script to parse before the Library renders. Checked in the browser on the production build: a txt pair added, aligned and opened with the Reader chunk and its CSS fetched on the way, the word card styled, an EPUB built in the page parsed through the lazy JSZip, and the dictionary re-downloaded with the footer updating a few times a second instead of per shard. |
 | 27 | Account and sync (step 36) | The app is a static site with no server, so "sign in" is a question of where the state goes: Supabase, with Google as the provider, through a full-page OAuth redirect with PKCE (the flow that works inside an installed iOS web app, where popups do not) and PostgREST over `fetch`, in a hand-written client of four endpoints (`src/sync/supabase.ts`) rather than supabase-js: the app holds only the public anon key, and `supabase/schema.sql` keeps every account to its own rows with row-level security. What syncs is the reading state alone: one `reading_state` row per user and book, keyed by the SHA-256 of both texts (`sync/key.ts`, stored on the book the first time it is needed) so a re-import anywhere finds its place; the books themselves, large and the reader's own files, stay on the device. Last write wins per book on the whole state (place and bookmarks together): every local write stamps the book's `sync` row (`store/sync.ts`, a new Dexie table in schema version 2; the stamp only grows, so a change after a pull beats what was pulled whatever the clocks say), the engine (`sync/engine.ts`) pushes the stamped books a few seconds after the last change and pulls on launch, online and when the app is shown again: stamps of every row first, then the rows newer than here, then the books newer here. A `before update` trigger drops an upsert whose stamp is not newer, so two devices cannot lose the newer state. The Account group sits first in Settings: Sign in with Google, else the picture, name and the sync's state, Sync Now and Sign Out; a build without `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` has no group and starts nothing. Deleting a book leaves its row for a later import; signing out keeps the state here and forgets the pushes, so the next account is sent everything. Not verified in this session: the redirect round trip on a real phone, and against a real project, since none existed yet; the client and engine are tested against fakes of GoTrue and PostgREST. |
+| 28 | Book sync (step 37) | An aligned book goes to the account as its step-14 bundle gzipped with `CompressionStream` (`gzipBundle` / `gunzipBundle` in `store/bundle.ts`; the Kafka test pair is 1.2 KB), in a private Storage bucket `books` at `<user id>/<content key>.interlinear.json.gz`, with row-level security on `storage.objects` keeping each account to its own folder and a 50 MB, `application/gzip`-only bucket. The book's `reading_state` row gains `bundle_size` and `bundle_at`, and `bundle_at` is the uploaded copy's *alignment stamp* (`alignment.updated`), not the upload time: the stamp a download keeps (`importBundle`'s `synced` option keeps the id, the stamp and the key) and the one a repair or chapter edit moves, so one comparison decides the direction: no copy or an older one in the account → upload; a newer one → `replaceAlignment` puts its sentences, beads, alignment and chapter edits in place of the local ones, the book keeping its id, place and bookmarks. The upload writes the row with `updated` 0 and only the bundle columns; the trigger now keeps the newer reading state and the newer bundle columns of a write separately, and drops a write that changes neither. The `sync` row gains `bundled` (the stamp the account holds from here) and `detached`: a book the account held from here and holds no more was deleted everywhere on another device, so the copy here stays but neither its state nor the book goes back up (otherwise the next pull would put it back). The engine uploads after the reading-state push, one book at a time, only `ready` books; a second live query over the books schedules a push when one finishes aligning. Downloads are on demand: the Library lists the account's books not on the device under "In Your Account" (generated cover, cloud badge, size), a tap downloads, applies the reading state and opens the book where it was left; Settings' Account group has a Download All row with the count and size, and a Sync Books switch (on by default, kept in `settings`), off meaning step 36 alone. Delete asks "Delete from This Device" or "Delete Everywhere"; the second removes the object and the row first, so offline the sheet stays with the reason and nothing is lost. Signing out forgets `bundled` and `detached` with the pushes, so another account gets every book. The `FetchLike` seam now carries bytes (`Uint8Array` bodies, `arrayBuffer()`), and the client's one authenticated request path (refresh near expiry, once more on a 401) serves PostgREST and Storage alike. Checked in the browser pane against a local stand-in for both endpoints, two origins as two devices: upload, tile, download at the other's place with its bookmark, a repair crossing back, Delete Everywhere leaving the other copy local. |
 
 ## 5. Build order
 

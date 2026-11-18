@@ -12,6 +12,9 @@
  * and the verifier into a session. A session is an access token (an hour), a refresh token and
  * the user; it is kept in the given storage and refreshed a minute before it runs out, or once
  * on a 401. A refresh that fails for good signs the user out.
+ *
+ * Step 37 adds Storage, for the books: upload, download and remove of one object, through the
+ * same authenticated request as PostgREST, so a bucket's policies see the same user.
  */
 
 export interface SupabaseConfig {
@@ -40,8 +43,8 @@ export interface Session {
 /** The slice of `fetch` the client uses; `globalThis.fetch` fits, and tests pass a fake. */
 export type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body?: string },
-) => Promise<{ status: number; ok: boolean; text(): Promise<string> }>
+  init: { method: string; headers: Record<string, string>; body?: string | Uint8Array<ArrayBuffer> },
+) => Promise<{ status: number; ok: boolean; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer> }>
 
 /** Where the session lives between launches: `localStorage` in the app, a Map in tests. */
 export interface KeyValueStorage {
@@ -295,23 +298,17 @@ export class SupabaseClient {
   }
 
   /**
-   * A PostgREST request as the signed-in user: `path` is the table and query
-   * (`reading_state?select=book_key`). Returns the parsed JSON body (null for an empty one).
-   * Throws {@link SupabaseError} on a non-2xx answer and a plain error when signed out.
+   * A request as the signed-in user, to any path under the project: the session refreshed when
+   * close to its end, and once more after a 401. Throws when signed out.
    */
-  async rest<T = unknown>(path: string, request: RestRequest = {}): Promise<T> {
+  private async authed(path: string, method: string, headers: Record<string, string>, body?: string | Uint8Array<ArrayBuffer>) {
     let session = await this.validSession()
     if (session === null) throw new SupabaseError('Not signed in', 401)
     const send = (s: Session) =>
-      this.fetchImpl(`${this.config.url}/rest/v1/${path}`, {
-        method: request.method ?? 'GET',
-        headers: {
-          apikey: this.config.anonKey,
-          Authorization: `Bearer ${s.accessToken}`,
-          'Content-Type': 'application/json',
-          ...request.headers,
-        },
-        ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) }),
+      this.fetchImpl(`${this.config.url}/${path}`, {
+        method,
+        headers: { apikey: this.config.anonKey, Authorization: `Bearer ${s.accessToken}`, ...headers },
+        ...(body === undefined ? {} : { body }),
       })
     let res = await send(session)
     if (res.status === 401) {
@@ -319,8 +316,49 @@ export class SupabaseClient {
       if (session === null) throw new SupabaseError('Signed out', 401)
       res = await send(session)
     }
+    return res
+  }
+
+  /**
+   * A PostgREST request as the signed-in user: `path` is the table and query
+   * (`reading_state?select=book_key`). Returns the parsed JSON body (null for an empty one).
+   * Throws {@link SupabaseError} on a non-2xx answer and a plain error when signed out.
+   */
+  async rest<T = unknown>(path: string, request: RestRequest = {}): Promise<T> {
+    const res = await this.authed(
+      `rest/v1/${path}`,
+      request.method ?? 'GET',
+      { 'Content-Type': 'application/json', ...request.headers },
+      request.body === undefined ? undefined : JSON.stringify(request.body),
+    )
     const text = await res.text()
     if (!res.ok) throw new SupabaseError(errorMessage(res.status, text), res.status)
     return (text === '' ? null : JSON.parse(text)) as T
+  }
+
+  /**
+   * Store a file in a Storage bucket (step 37), replacing one at the same path. `path` is the
+   * object's name in the bucket (`<user id>/<file>`), its segments URL-safe.
+   */
+  async upload(bucket: string, path: string, bytes: Uint8Array<ArrayBuffer>, contentType: string): Promise<void> {
+    const res = await this.authed(`storage/v1/object/${bucket}/${path}`, 'POST', { 'Content-Type': contentType, 'x-upsert': 'true' }, bytes)
+    if (!res.ok) throw new SupabaseError(errorMessage(res.status, await res.text()), res.status)
+  }
+
+  /** A file of a private bucket, as the signed-in user may read it. */
+  async download(bucket: string, path: string): Promise<Uint8Array<ArrayBuffer>> {
+    const res = await this.authed(`storage/v1/object/authenticated/${bucket}/${path}`, 'GET', {})
+    if (!res.ok) throw new SupabaseError(errorMessage(res.status, await res.text()), res.status)
+    return new Uint8Array(await res.arrayBuffer())
+  }
+
+  /** Delete a file of a bucket. A file that is already gone is not an error. */
+  async remove(bucket: string, path: string): Promise<void> {
+    const res = await this.authed(`storage/v1/object/${bucket}/${path}`, 'DELETE', {})
+    if (!res.ok && res.status !== 404) {
+      const text = await res.text()
+      // Storage answers a missing object with 400 and "not_found" in the body.
+      if (!/not.?found/i.test(text)) throw new SupabaseError(errorMessage(res.status, text), res.status)
+    }
   }
 }

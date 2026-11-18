@@ -408,6 +408,12 @@ export interface ImportBundleOptions {
   /** Title and author to store instead of the bundle's (the sheet lets the user edit them). */
   title?: string
   author?: string
+  /**
+   * A book downloaded from the account (step 37): its content key, known from where it was
+   * stored so it is not hashed again, and the bundle's alignment stamp kept as it is, so the
+   * copy here and the one on the server carry the same stamp.
+   */
+  synced?: { key: string }
 }
 
 /**
@@ -422,10 +428,12 @@ export async function importBundle(bundle: Bundle, options: ImportBundleOptions 
     const id = (await db.books.get(bundle.book.id)) === undefined ? bundle.book.id : newId()
     const ready = bundle.book.alignment?.status === 'ready'
     const alignment: AlignmentState = ready
-      ? { ...bundle.book.alignment!, updated: Date.now() }
+      ? { ...bundle.book.alignment!, updated: options.synced === undefined ? Date.now() : bundle.book.alignment!.updated }
       : { status: 'pending', updated: Date.now() }
     delete alignment.error
     const book: Book = { ...bundle.book, id, title, author, created: Date.now(), alignment }
+    if (options.synced === undefined) delete book.key
+    else book.key = options.synced.key
     await db.books.add(book)
     for (const lang of LANGS) {
       const paraRows: ParagraphRow[] = bundle.paragraphs[lang].map((p) =>
@@ -433,16 +441,7 @@ export async function importBundle(bundle: Bundle, options: ImportBundleOptions 
       )
       await db.paragraphs.bulkAdd(paraRows)
       if (!ready) continue
-      const sentRows: SentenceRow[] = bundle.sentences[lang].map((s, idx) => ({
-        bookId: id,
-        lang,
-        idx,
-        paraIdx: s[0],
-        text: sentenceText(s, bundle.paragraphs[lang]),
-        charStart: s[1],
-        charEnd: s[2],
-      }))
-      await db.sentences.bulkAdd(sentRows)
+      await db.sentences.bulkAdd(sentenceRows(bundle, id, lang))
     }
     if (ready) {
       const beadRows: BeadRow[] = bundle.beads.map((b, beadIdx) => ({
@@ -457,4 +456,72 @@ export async function importBundle(bundle: Bundle, options: ImportBundleOptions 
     }
     return book
   })
+}
+
+/** Sentence rows of one language of a bundle, for the book `bookId`. */
+function sentenceRows(bundle: Bundle, bookId: string, lang: Lang): SentenceRow[] {
+  return bundle.sentences[lang].map((s, idx) => ({
+    bookId,
+    lang,
+    idx,
+    paraIdx: s[0],
+    text: sentenceText(s, bundle.paragraphs[lang]),
+    charStart: s[1],
+    charEnd: s[2],
+  }))
+}
+
+/**
+ * Put a newer alignment of a book that is already here in place of its own (step 37: a repair
+ * made on another device). The bundle must be of the same texts, which the content key
+ * guarantees; the book keeps its id, title, cover, place and bookmarks, and takes the bundle's
+ * sentences, beads, alignment state and chapter edits.
+ */
+export async function replaceAlignment(bookId: string, bundle: Bundle, db: InterlinearDB = sharedDb()): Promise<void> {
+  if (bundle.book.alignment?.status !== 'ready') throw new BundleError('The bundle holds no alignment.')
+  await db.transaction('rw', [db.books, db.sentences, db.beads], async () => {
+    const book = await db.books.get(bookId)
+    if (book === undefined) throw new BundleError('This book is no longer in the library.')
+    await db.sentences.where('bookId').equals(bookId).delete()
+    await db.beads.where('bookId').equals(bookId).delete()
+    for (const lang of LANGS) await db.sentences.bulkAdd(sentenceRows(bundle, bookId, lang))
+    await db.beads.bulkAdd(
+      bundle.beads.map((b, beadIdx) => ({ bookId, beadIdx, deSentenceIdx: b.de, enSentenceIdx: b.en, confidence: b.confidence, manual: b.manual })),
+    )
+    const alignment: AlignmentState = { ...bundle.book.alignment! }
+    delete alignment.error
+    const next: Book = { ...book, alignment }
+    if (bundle.book.chapterEdits === undefined) delete next.chapterEdits
+    else next.chapterEdits = bundle.book.chapterEdits
+    await db.books.put(next)
+  })
+}
+
+// ---------------------------------------------------------------------------------------------
+// Gzip (step 37: the form a bundle travels to the account in)
+
+const isGzip = (bytes: Uint8Array): boolean => bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b
+
+async function pipeBytes(bytes: Uint8Array<ArrayBuffer>, transform: CompressionStream | DecompressionStream): Promise<Uint8Array<ArrayBuffer>> {
+  const stream = new Blob([bytes]).stream().pipeThrough(transform)
+  return new Uint8Array(await new Response(stream).arrayBuffer())
+}
+
+/** A bundle as gzipped JSON. */
+export function gzipBundle(bundle: Bundle): Promise<Uint8Array<ArrayBuffer>> {
+  return pipeBytes(new TextEncoder().encode(JSON.stringify(bundle)), new CompressionStream('gzip'))
+}
+
+/**
+ * Parse a bundle from gzipped JSON, or from plain JSON when something on the way (a server's
+ * `Content-Encoding`) already unpacked it. Throws {@link BundleError} as {@link parseBundle} does.
+ */
+export async function gunzipBundle(bytes: Uint8Array<ArrayBuffer>): Promise<Bundle> {
+  let text: string
+  try {
+    text = new TextDecoder().decode(isGzip(bytes) ? await pipeBytes(bytes, new DecompressionStream('gzip')) : bytes)
+  } catch {
+    fail('The book from the account is damaged.')
+  }
+  return parseBundle(text)
 }

@@ -8,9 +8,15 @@
  * sheet, since a book takes its alignment and bookmarks with it; the tile then shrinks away. The
  * progress rows come from the Reader (`reader/progress.ts`) and are read live, so the card and
  * the notes follow reading in another tab too.
+ *
+ * Signed in with "Sync books" on (step 37), the account's books that are not on this device
+ * follow the shelf under "In Your Account", each a cover with a cloud badge and its size; a tap
+ * downloads it and opens it where it was left. Delete then asks whether the book goes from this
+ * device only or from the account too.
  */
 
 import { useEffect, useState } from 'preact/hooks'
+import { formatBytes } from '../dict/download.ts'
 import { cancelAlignment, clearAlignmentError, resumeAlignments, startAlignment, type AlignmentJob } from '../align/jobs.ts'
 import { isPrealignedBook } from '../align/prealigned.ts'
 import { chapterLabel, percentRead, progressLabel, readingNow, type ReadingNow } from '../reader/progress.ts'
@@ -22,6 +28,9 @@ import { BottomSheet } from '../ui/BottomSheet.tsx'
 import { Cover } from '../ui/Cover.tsx'
 import { shareOrDownload } from '../ui/download.ts'
 import { SWIPE_SETTLE_MS, SwipeRow } from '../ui/SwipeRow.tsx'
+import { coverColours } from '../ui/cover.ts'
+import { bookSyncActive, downloadBook, removeFromAccount, useAccountState } from '../sync/browser.ts'
+import type { RemoteBook } from '../sync/engine.ts'
 import { AddBookSheet } from './AddBookSheet.tsx'
 import { RealignSheet } from './RealignSheet.tsx'
 import { BOOKMARKS_HASH, debugHash, readHash, SETTINGS_HASH } from './routes.ts'
@@ -37,6 +46,8 @@ export function Library() {
   const books = useBooks()
   const jobs = useAlignmentJobs()
   const progress = useProgress()
+  const account = useAccountState()
+  const remoteBooks = account.user !== null && account.bookSync ? account.remoteBooks : []
   const [adding, setAdding] = useState(false)
   const [realigning, setRealigning] = useState<Book | null>(null)
   /** The tile whose Delete is uncovered, if any; one at a time. */
@@ -51,7 +62,9 @@ export function Library() {
     void resumeAlignments()
   }, [])
 
-  const confirmDelete = (book: Book) => {
+  const confirmDelete = async (book: Book, everywhere: boolean) => {
+    // From the account first: offline, the sheet stays up with the reason and nothing is lost.
+    if (everywhere) await removeFromAccount(book.id)
     setAsking(null)
     setRemovingId(book.id)
     cancelAlignment(book.id)
@@ -101,14 +114,16 @@ export function Library() {
       </header>
 
       <main
-        class={`content ${!loading && books.length > 0 ? 'content--shelf' : ''}`}
+        class={`content ${!loading && (books.length > 0 || remoteBooks.length > 0) ? 'content--shelf' : ''}`}
         onClick={(e) => {
           // A tap on the page outside the tiles shuts the open one.
           if ((e.target as Element | null)?.closest('.swipe') === null) setOpenId(null)
         }}
       >
-        {loading ? null : books.length === 0 ? (
+        {loading ? null : books.length === 0 && remoteBooks.length === 0 ? (
           <EmptyShelf onAdd={() => setAdding(true)} />
+        ) : books.length === 0 ? (
+          <AccountShelf books={remoteBooks} downloading={account.downloading} />
         ) : (
           <>
             {now !== null && <ReadingNowCard now={now} />}
@@ -123,6 +138,7 @@ export function Library() {
               onDelete={setAsking}
               onRealign={setRealigning}
             />
+            {remoteBooks.length > 0 && <AccountShelf books={remoteBooks} downloading={account.downloading} />}
           </>
         )}
       </main>
@@ -337,24 +353,120 @@ function ShelfItem({ book, job, progress, open, removing, onOpenChange, onDelete
   )
 }
 
+/**
+ * The account's books that are not on this device (step 37): a tap downloads one and opens it
+ * where it was left, aligned, with its bookmarks.
+ */
+function AccountShelf({ books, downloading }: { books: RemoteBook[]; downloading: readonly string[] }) {
+  return (
+    <section class="account-shelf" aria-labelledby="account-shelf-title">
+      <h2 class="section-title" id="account-shelf-title">
+        In Your Account
+      </h2>
+      <ul class="shelf" aria-label="Books in your account">
+        {books.map((b) => (
+          <RemoteTile key={b.key} book={b} busy={downloading.includes(b.key)} />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function RemoteTile({ book, busy }: { book: RemoteBook; busy: boolean }) {
+  const [error, setError] = useState<string | null>(null)
+  const open = async () => {
+    if (busy) return
+    setError(null)
+    try {
+      const local = await downloadBook(book.key)
+      if (local.alignment?.status === 'ready') location.hash = readHash(local.id)
+      else void startAlignment(local.id)
+    } catch (err) {
+      console.error('could not download the book', err)
+      setError(navigator.onLine === false ? 'You’re offline.' : 'Couldn’t download.')
+    }
+  }
+  return (
+    <li class="shelf-item shelf-item--remote">
+      <button type="button" class="shelf-link" disabled={busy} aria-label={`Download ${book.title}, ${formatBytes(book.size)}`} onClick={() => void open()}>
+        <Cover title={book.title} author="" colours={coverColours(book.title)} class="cover-shelf" progress={busy ? 0 : undefined} />
+        <span class="cloud-badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="14" height="14">
+            <path
+              d="M7 18.5h10.5a4 4 0 0 0 .6-7.95A5.5 5.5 0 0 0 7.5 9a4.75 4.75 0 0 0-.5 9.5z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linejoin="round"
+            />
+            <path d="M12 10.5v5.5m-2.5-2.5L12 16l2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </span>
+        <span class="shelf-title">{book.title || 'Untitled'}</span>
+      </button>
+      <div class={`shelf-note ${error === null ? '' : 'shelf-note--error'}`} role="status">
+        {busy ? 'Downloading…' : (error ?? formatBytes(book.size))}
+      </div>
+    </li>
+  )
+}
+
 interface DeleteProps {
   /** The book Delete was chosen for; null keeps the sheet closed. */
   book: Book | null
   onCancel: () => void
-  onConfirm: (book: Book) => void
+  /** Rejects when the book could not be deleted from the account; the sheet then says so. */
+  onConfirm: (book: Book, everywhere: boolean) => Promise<void>
 }
 
-/** Asks before a book goes (step 29), naming what goes with it. */
+/**
+ * Asks before a book goes (step 29), naming what goes with it. With books syncing (step 37) it
+ * offers both: from this device, the account keeping the book for the other devices, or
+ * everywhere, which deletes it from the account too.
+ */
 function DeleteBookSheet({ book, onCancel, onConfirm }: DeleteProps) {
   const count = useLiveQuery(() => (book === null ? Promise.resolve(0) : db().bookmarks.where('bookId').equals(book.id).count()), [book?.id])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    setBusy(false)
+    setError(null)
+  }, [book?.id])
   if (book === null) return null
+  const synced = bookSyncActive()
   const what = count === undefined || count === 0 ? 'The book and its alignment' : count === 1 ? 'The book, its alignment and its bookmark' : `The book, its alignment and its ${count} bookmarks`
+  const confirm = (everywhere: boolean) => {
+    setBusy(true)
+    setError(null)
+    onConfirm(book, everywhere).catch((err: unknown) => {
+      console.error('could not delete the book from the account', err)
+      setError(navigator.onLine === false ? 'You’re offline, so the book can’t be deleted from your account now.' : 'Couldn’t delete the book from your account. Try again.')
+      setBusy(false)
+    })
+  }
   return (
     <BottomSheet open onClose={onCancel} title={`Delete “${book.title}”?`}>
-      <p class="sheet-text">{what} are removed from this device. Bundles and bookmark files already exported are not affected.</p>
-      <button type="button" class="btn-destructive" onClick={() => onConfirm(book)}>
-        Delete Book
+      {synced ? (
+        <p class="sheet-text">
+          {what} are removed from this device; your account keeps them for your other devices. Delete Everywhere removes them from your account too, and
+          from the other devices’ lists; copies already downloaded there stay.
+        </p>
+      ) : (
+        <p class="sheet-text">{what} are removed from this device. Bundles and bookmark files already exported are not affected.</p>
+      )}
+      {error !== null && (
+        <p class="sheet-text sheet-text--error" role="alert">
+          {error}
+        </p>
+      )}
+      <button type="button" class="btn-destructive" disabled={busy} onClick={() => confirm(false)}>
+        {synced ? 'Delete from This Device' : 'Delete Book'}
       </button>
+      {synced && (
+        <button type="button" class="btn-destructive btn-destructive--second" disabled={busy} onClick={() => confirm(true)}>
+          {busy ? 'Deleting…' : 'Delete Everywhere'}
+        </button>
+      )}
       <button type="button" class="btn-plain" onClick={onCancel}>
         Cancel
       </button>

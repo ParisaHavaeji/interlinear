@@ -33,7 +33,25 @@ export async function markPushed(bookId: string, changed: number, db: Interlinea
     })
 }
 
-/** Forget every push: the next account must be sent everything (on sign-out). */
+/** Forget every push: the next account must be sent everything, books included (on sign-out). */
 export async function resetPushed(db: InterlinearDB = sharedDb()): Promise<void> {
-  await db.sync.toCollection().modify({ pushed: 0 })
+  await db.sync.toCollection().modify((r) => {
+    r.pushed = 0
+    delete r.bundled
+    delete r.detached
+  })
+}
+
+/** Record that the account holds the copy of a book whose alignment stamp is `at` (step 37). */
+export async function markBundled(bookId: string, at: number, db: InterlinearDB = sharedDb()): Promise<void> {
+  const row = await db.sync.get(bookId)
+  if (row === undefined) await db.sync.put({ bookId, changed: 0, pushed: 0, bundled: at })
+  else await db.sync.update(bookId, { bundled: at })
+}
+
+/** Keep a book on this device alone: it was deleted everywhere from another one (step 37). */
+export async function markDetached(bookId: string, db: InterlinearDB = sharedDb()): Promise<void> {
+  const row = await db.sync.get(bookId)
+  if (row === undefined) await db.sync.put({ bookId, changed: 0, pushed: 0, detached: true })
+  else await db.sync.update(bookId, { detached: true, pushed: row.changed })
 }

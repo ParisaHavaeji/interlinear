@@ -623,3 +623,70 @@ a.icon-btn {
 .btn-destructive:active {
   filter: brightness(0.85);
 }
+
+.btn-destructive:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The second of the delete sheet's two choices (step 37). */
+.btn-destructive--second {
+  margin-top: 10px;
+}
+
+.sheet-text--error {
+  color: #ff3b30;
+}
+
+/* --- In Your Account (plan.md step 37) ---------------------------------------------
+   The account's books not on this device: a tile like the shelf's, the button reset to look
+   like the link, the cover a little faded with a cloud badge in its corner. */
+
+.account-shelf {
+  margin-top: 8px;
+}
+
+.shelf-item--remote {
+  list-style: none;
+  /* Not a swipe row: none of the margin that offsets the swipe row's padding. */
+  margin: 0;
+}
+
+button.shelf-link {
+  position: relative;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.shelf-link:disabled {
+  cursor: progress;
+}
+
+.shelf-item--remote .cover {
+  opacity: 0.82;
+}
+
+.cloud-badge {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  color: var(--fg);
+  background: light-dark(rgba(255, 255, 255, 0.85), rgba(44, 44, 46, 0.85));
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.shelf-item--remote .shelf-title {
+  display: -webkit-box;
+}

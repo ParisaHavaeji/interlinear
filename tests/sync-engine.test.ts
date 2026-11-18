@@ -6,7 +6,7 @@ import { addBook, deleteBook } from '../src/store/books.ts'
 import { openDatabase, type Book, type InterlinearDB } from '../src/store/db.ts'
 import { getProgress, saveProgress } from '../src/store/progress.ts'
 import { listUnsynced, markChanged, resetPushed } from '../src/store/sync.ts'
-import { SyncEngine, supabaseRemote, type Remote, type RemoteState, type SyncState } from '../src/sync/engine.ts'
+import { BOOKS_BUCKET, SyncEngine, supabaseRemote, type Remote, type RemoteState, type SyncState } from '../src/sync/engine.ts'
 import { bookKey, contentKey } from '../src/sync/key.ts'
 import { SupabaseClient, type FetchLike } from '../src/sync/supabase.ts'
 
@@ -53,6 +53,16 @@ function fakeRemote(): Remote & { rows: Map<string, RemoteState>; upserts: Remot
       const old = rows.get(row.book_key)
       if (old !== undefined && row.updated <= old.updated) return
       rows.set(row.book_key, structuredClone(row))
+    },
+    // Books (step 37) are tested in sync-books.test.ts; these books are never aligned.
+    async upload() {
+      throw new Error('no uploads here')
+    },
+    async download(): Promise<Uint8Array<ArrayBuffer>> {
+      throw new Error('no downloads here')
+    },
+    async remove() {
+      throw new Error('no removes here')
     },
   }
   return remote
@@ -312,8 +322,10 @@ describe('supabaseRemote', () => {
   function client(answer: unknown) {
     const calls: { url: string; method: string; headers: Record<string, string>; body?: unknown }[] = []
     const fetch: FetchLike = async (url, init) => {
-      calls.push({ url, method: init.method, headers: init.headers, ...(init.body === undefined ? {} : { body: JSON.parse(init.body) }) })
-      return { status: 200, ok: true, text: async () => (answer === undefined ? '' : JSON.stringify(answer)) }
+      const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body
+      calls.push({ url, method: init.method, headers: init.headers, ...(body === undefined ? {} : { body }) })
+      const text = answer === undefined ? '' : JSON.stringify(answer)
+      return { status: 200, ok: true, text: async () => text, arrayBuffer: async () => new TextEncoder().encode(text).buffer }
     }
     const map = new Map([['interlinear.session', JSON.stringify(session)]])
     const storage = { getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => void map.set(k, v), removeItem: (k: string) => void map.delete(k) }
@@ -323,7 +335,7 @@ describe('supabaseRemote', () => {
   it('reads the heads and the rows of given keys', async () => {
     const { remote, calls } = client([{ book_key: 'a', updated: 1 }])
     expect(await remote.heads()).toEqual([{ book_key: 'a', updated: 1 }])
-    expect(calls[0].url).toBe('https://p.supabase.co/rest/v1/reading_state?select=book_key,updated')
+    expect(calls[0].url).toBe('https://p.supabase.co/rest/v1/reading_state?select=book_key,updated,title,bundle_size,bundle_at')
     await remote.fetch(['a', 'b'])
     expect(calls[1].url).toBe('https://p.supabase.co/rest/v1/reading_state?select=book_key,title,langs,progress,bookmarks,updated&book_key=in.(a,b)')
     expect(await remote.fetch([])).toEqual([])
@@ -340,5 +352,35 @@ describe('supabaseRemote', () => {
       headers: { Prefer: 'resolution=merge-duplicates,return=minimal', Authorization: 'Bearer tok' },
       body: { user_id: 'user-7', ...row },
     })
+  })
+
+  it('uploads a book to the user’s folder, then notes it on the row without touching the reading state (step 37)', async () => {
+    const { remote, calls } = client(undefined)
+    const bytes = new Uint8Array([0x1f, 0x8b, 1, 2])
+    await remote.upload('k1', bytes, { title: 'Demian', langs: ['de', 'en'], size: 4, at: 1234 })
+    expect(calls[0]).toMatchObject({
+      url: `https://p.supabase.co/storage/v1/object/${BOOKS_BUCKET}/user-7/k1.interlinear.json.gz`,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/gzip', 'x-upsert': 'true', Authorization: 'Bearer tok', apikey: 'anon' },
+      body: bytes,
+    })
+    expect(calls[1]).toMatchObject({
+      url: 'https://p.supabase.co/rest/v1/reading_state',
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: { user_id: 'user-7', book_key: 'k1', title: 'Demian', langs: ['de', 'en'], updated: 0, bundle_size: 4, bundle_at: 1234 },
+    })
+    expect(calls[1].body).not.toHaveProperty('progress')
+    expect(calls[1].body).not.toHaveProperty('bookmarks')
+  })
+
+  it('downloads from the authenticated route and removes the object and the row', async () => {
+    const { remote, calls } = client({ any: 'thing' })
+    const bytes = await remote.download('k1')
+    expect(new TextDecoder().decode(bytes)).toBe('{"any":"thing"}')
+    expect(calls[0]).toMatchObject({ url: 'https://p.supabase.co/storage/v1/object/authenticated/books/user-7/k1.interlinear.json.gz', method: 'GET' })
+    await remote.remove('k1')
+    expect(calls[1]).toMatchObject({ url: 'https://p.supabase.co/storage/v1/object/books/user-7/k1.interlinear.json.gz', method: 'DELETE' })
+    expect(calls[2]).toMatchObject({ url: 'https://p.supabase.co/rest/v1/reading_state?book_key=eq.k1', method: 'DELETE' })
   })
 })

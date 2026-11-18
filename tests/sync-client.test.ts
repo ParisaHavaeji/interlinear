@@ -34,14 +34,23 @@ interface Call {
 function fakeFetch(handlers: { match: string; status?: number; body?: unknown }[]): { fetch: FetchLike; calls: Call[] } {
   const calls: Call[] = []
   const fetch: FetchLike = async (url, init) => {
-    calls.push({ url, method: init.method, headers: init.headers, ...(init.body === undefined ? {} : { body: JSON.parse(init.body) }) })
+    const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body
+    calls.push({ url, method: init.method, headers: init.headers, ...(body === undefined ? {} : { body }) })
     const h = handlers.find((h) => url.includes(h.match))
-    if (h === undefined) return { status: 404, ok: false, text: async () => '{"message":"no handler"}' }
+    const respond = (status: number, text: string) => ({ status, ok: status < 300, text: async () => text, arrayBuffer: async () => new TextEncoder().encode(text).buffer })
+    if (h === undefined) return respond(404, '{"message":"no handler"}')
     const status = h.status ?? 200
-    return { status, ok: status < 300, text: async () => (h.body === undefined ? '' : JSON.stringify(h.body)) }
+    if (h.body instanceof Uint8Array) {
+      const bytes = h.body
+      return { status, ok: status < 300, text: async () => new TextDecoder().decode(bytes), arrayBuffer: async () => bytes.slice().buffer }
+    }
+    return respond(status, h.body === undefined ? '' : typeof h.body === 'string' ? h.body : JSON.stringify(h.body))
   }
   return { fetch, calls }
 }
+
+/** A response of the fake fetch. */
+const answer = (status: number, text: string) => ({ status, ok: status < 300, text: async () => text, arrayBuffer: async () => new TextEncoder().encode(text).buffer })
 
 const TOKEN = {
   access_token: 'access-1',
@@ -171,10 +180,10 @@ describe('SupabaseClient', () => {
     const storage = memoryStorage({ 'interlinear.session': JSON.stringify(session()) })
     let rest = 0
     const fetch: FetchLike = async (url, init) => {
-      if (url.includes('grant_type=refresh_token')) return { status: 200, ok: true, text: async () => JSON.stringify({ ...TOKEN, access_token: 'access-2' }) }
+      if (url.includes('grant_type=refresh_token')) return answer(200, JSON.stringify({ ...TOKEN, access_token: 'access-2' }))
       rest++
-      if (init.headers.Authorization === 'Bearer access-0') return { status: 401, ok: false, text: async () => '{"message":"JWT expired"}' }
-      return { status: 200, ok: true, text: async () => '[1]' }
+      if (init.headers.Authorization === 'Bearer access-0') return answer(401, '{"message":"JWT expired"}')
+      return answer(200, '[1]')
     }
     const client = new SupabaseClient(CONFIG, { fetch, storage, now: () => 1000 })
     expect(await client.rest('reading_state')).toEqual([1])
@@ -231,5 +240,67 @@ describe('SupabaseClient', () => {
   it('ignores a malformed stored session', () => {
     const client = new SupabaseClient(CONFIG, { fetch: fakeFetch([]).fetch, storage: memoryStorage({ 'interlinear.session': '{"accessToken":1}' }) })
     expect(client.session).toBeNull()
+  })
+})
+
+describe('Storage (step 37)', () => {
+  const signedIn = () => memoryStorage({ 'interlinear.session': JSON.stringify(session()) })
+
+  it('uploads bytes with upsert, as the user', async () => {
+    const { fetch, calls } = fakeFetch([{ match: '/storage/v1/object/books/', body: { Key: 'books/u/x.gz' } }])
+    const client = new SupabaseClient(CONFIG, { fetch, storage: signedIn(), now: () => 1000 })
+    const bytes = new Uint8Array([1, 2, 3])
+    await client.upload('books', 'u/x.gz', bytes, 'application/gzip')
+    expect(calls[0]).toMatchObject({
+      url: 'https://abc.supabase.co/storage/v1/object/books/u/x.gz',
+      method: 'POST',
+      headers: { apikey: 'anon-key', Authorization: 'Bearer access-0', 'Content-Type': 'application/gzip', 'x-upsert': 'true' },
+      body: bytes,
+    })
+  })
+
+  it('downloads the bytes of a private object, refreshing once on a 401', async () => {
+    let tries = 0
+    const fetch: FetchLike = async (url, init) => {
+      if (url.includes('grant_type=refresh_token')) return answer(200, JSON.stringify({ ...TOKEN, access_token: 'access-2' }))
+      expect(url).toBe('https://abc.supabase.co/storage/v1/object/authenticated/books/u/x.gz')
+      tries++
+      if (init.headers.Authorization === 'Bearer access-0') return answer(401, '{"message":"jwt expired"}')
+      return { status: 200, ok: true, text: async () => '', arrayBuffer: async () => new Uint8Array([0x1f, 0x8b, 9]).buffer }
+    }
+    const client = new SupabaseClient(CONFIG, { fetch, storage: signedIn(), now: () => 1000 })
+    expect([...(await client.download('books', 'u/x.gz'))]).toEqual([0x1f, 0x8b, 9])
+    expect(tries).toBe(2)
+  })
+
+  it('reports a refused upload or a missing object as a SupabaseError', async () => {
+    const { fetch } = fakeFetch([
+      { match: '/object/books/', status: 403, body: { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' } },
+      { match: '/object/authenticated/', status: 400, body: { statusCode: '404', error: 'not_found', message: 'Object not found' } },
+    ])
+    const client = new SupabaseClient(CONFIG, { fetch, storage: signedIn(), now: () => 1000 })
+    await expect(client.upload('books', 'other/x.gz', new Uint8Array([1]), 'application/gzip')).rejects.toMatchObject({
+      status: 403,
+      message: 'new row violates row-level security policy',
+    })
+    await expect(client.download('books', 'u/missing.gz')).rejects.toBeInstanceOf(SupabaseError)
+  })
+
+  it('removes an object, and takes one already gone as removed', async () => {
+    const gone = fakeFetch([{ match: '/object/books/', status: 400, body: { statusCode: '404', error: 'not_found', message: 'Object not found' } }])
+    const client = new SupabaseClient(CONFIG, { fetch: gone.fetch, storage: signedIn(), now: () => 1000 })
+    await client.remove('books', 'u/x.gz')
+    expect(gone.calls[0]).toMatchObject({ url: 'https://abc.supabase.co/storage/v1/object/books/u/x.gz', method: 'DELETE' })
+
+    const refused = fakeFetch([{ match: '/object/books/', status: 403, body: { message: 'denied' } }])
+    const other = new SupabaseClient(CONFIG, { fetch: refused.fetch, storage: signedIn(), now: () => 1000 })
+    await expect(other.remove('books', 'u/x.gz')).rejects.toMatchObject({ status: 403 })
+  })
+
+  it('refuses when signed out, without a request', async () => {
+    const { fetch, calls } = fakeFetch([])
+    const client = new SupabaseClient(CONFIG, { fetch, storage: memoryStorage() })
+    await expect(client.download('books', 'u/x.gz')).rejects.toMatchObject({ status: 401 })
+    expect(calls).toEqual([])
   })
 })

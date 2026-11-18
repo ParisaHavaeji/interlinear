@@ -163,6 +163,16 @@ export interface SyncRow {
   changed: number
   /** The `changed` value the server holds, after a push or a pull; 0 for none. */
   pushed: number
+  /**
+   * Step 37: the alignment stamp (`alignment.updated`) of the copy of the book the account
+   * holds, after an upload or a download; missing or 0 when the account has none from here.
+   */
+  bundled?: number
+  /**
+   * Step 37: the book was deleted everywhere from another device while a copy stayed here. It
+   * is kept on this device alone: neither its reading state nor the book is sent again.
+   */
+  detached?: boolean
 }
 
 export type InterlinearDB = Dexie & {

@@ -12,9 +12,12 @@ import {
   BundleError,
   bundleFileName,
   exportBundle,
+  gunzipBundle,
+  gzipBundle,
   importBundle,
   isBundleFileName,
   parseBundle,
+  replaceAlignment,
   sentenceText,
   type Bundle,
 } from '../src/store/bundle.ts'
@@ -256,4 +259,56 @@ describe('importBundle', () => {
       await other.delete()
     }
   }, 30_000)
+})
+
+describe('gzip and the account (step 37)', () => {
+  it('round-trips a bundle through gzip, smaller than its JSON, and reads plain JSON too', async () => {
+    const book = await alignedBook()
+    const bundle = await exportBundle(book.id, db)
+    const bytes = await gzipBundle(bundle)
+    expect([bytes[0], bytes[1]]).toEqual([0x1f, 0x8b])
+    expect(bytes.length).toBeLessThan(JSON.stringify(bundle).length)
+    expect(await gunzipBundle(bytes)).toEqual(parseBundle(JSON.stringify(bundle)))
+    expect(await gunzipBundle(new TextEncoder().encode(JSON.stringify(bundle)))).toEqual(parseBundle(JSON.stringify(bundle)))
+  })
+
+  it('refuses damaged bytes with a BundleError', async () => {
+    const book = await alignedBook()
+    const bytes = await gzipBundle(await exportBundle(book.id, db))
+    await expect(gunzipBundle(bytes.slice(0, 20))).rejects.toBeInstanceOf(BundleError)
+  })
+
+  it('imports a synced book with its key and its alignment stamp as they were', async () => {
+    const book = await alignedBook()
+    const bundle = await exportBundle(book.id, db)
+    const other = openDatabase(`bundle-other-${n++}`)
+    try {
+      const copy = await importBundle(bundle, { synced: { key: 'abc' } }, other)
+      expect(copy.key).toBe('abc')
+      expect(copy.alignment!.updated).toBe(book.alignment!.updated)
+      const plain = await importBundle(bundle, {}, other)
+      expect(plain.key).toBeUndefined()
+    } finally {
+      await other.delete()
+    }
+  })
+
+  it('replaces the alignment of a book in place, keeping its id, place and bookmarks', async () => {
+    const book = await alignedBook()
+    const bundle = await exportBundle(book.id, db)
+    bundle.beads[0] = { ...bundle.beads[0], manual: true, confidence: 1 }
+    bundle.book.alignment = { ...bundle.book.alignment!, updated: 99 }
+    bundle.book.chapterEdits = { de: { exclude: [0] } }
+    await db.progress.put({ bookId: book.id, chapter: 1, para: 0, fraction: 0, read: 0.5, updated: 1 })
+    await replaceAlignment(book.id, bundle, db)
+    const beads = await db.beads.where('bookId').equals(book.id).sortBy('beadIdx')
+    expect(beads).toHaveLength(bundle.beads.length)
+    expect(beads[0]).toMatchObject({ manual: true, confidence: 1 })
+    const after = (await db.books.get(book.id))!
+    expect(after.alignment!.updated).toBe(99)
+    expect(after.chapterEdits).toEqual(bundle.book.chapterEdits)
+    expect(after.title).toBe(book.title)
+    expect(await db.sentences.where('bookId').equals(book.id).count()).toBe(bundle.sentences.de.length + bundle.sentences.en.length)
+    expect(await db.progress.get(book.id)).toMatchObject({ read: 0.5 })
+  })
 })

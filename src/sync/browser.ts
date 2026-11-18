@@ -9,8 +9,10 @@
  */
 
 import { useEffect, useState } from 'preact/hooks'
+import type { Book } from '../store/db.ts'
+import { getSetting, setSetting } from '../store/settings.ts'
 import { resetPushed } from '../store/sync.ts'
-import { SyncEngine, supabaseRemote, type SyncState } from './engine.ts'
+import { SyncEngine, supabaseRemote, type RemoteBook, type SyncState } from './engine.ts'
 import { authorizeUrl, challengeOf, newVerifier, parseCallback, SupabaseClient, type SessionUser, type SupabaseConfig } from './supabase.ts'
 
 export interface AccountState {
@@ -22,7 +24,17 @@ export interface AccountState {
   sync: SyncState
   /** What stopped the last sign-in, shown once. */
   signInError: string | null
+  /** Step 37: the books themselves sync ("Sync books" in Settings). */
+  bookSync: boolean
+  /** The account's books that are not on this device. */
+  remoteBooks: RemoteBook[]
+  /** Keys of the books being downloaded now. */
+  downloading: string[]
 }
+
+/** The settings row of "Sync books" (step 37); on unless turned off. */
+export const SYNC_BOOKS_KEY = 'syncBooks'
+const syncBooksOf = (v: unknown): boolean => v !== false
 
 const VERIFIER_KEY = 'interlinear.pkce'
 /** A verifier older than this is not used: the round trip through Google took too long. */
@@ -48,6 +60,9 @@ let state: AccountState = {
   signingIn: false,
   sync: { phase: 'idle', lastSync: null, error: null },
   signInError: null,
+  bookSync: true,
+  remoteBooks: [],
+  downloading: [],
 }
 const listeners = new Set<(s: AccountState) => void>()
 
@@ -137,16 +152,29 @@ export async function startSync(callback: ReturnType<typeof parseCallback>): Pro
 
 function startEngine(c: SupabaseClient): void {
   if (engine !== null) return
-  engine = new SyncEngine(supabaseRemote(c), { onState: (sync) => setState({ sync }) })
-  engine.start()
+  const started = new SyncEngine(supabaseRemote(c), {
+    books: state.bookSync,
+    onState: (sync) => setState({ sync }),
+    onRemoteBooks: (remoteBooks) => setState({ remoteBooks }),
+  })
+  engine = started
   lastPull = Date.now()
-  void engine.pull()
+  // The switch is read before the first pull, so a device with it off uploads nothing.
+  void getSetting(SYNC_BOOKS_KEY, syncBooksOf)
+    .catch(() => true)
+    .then((bookSync) => {
+      if (engine !== started) return
+      setState({ bookSync })
+      started.setBookSync(bookSync)
+      started.start()
+      void started.pull()
+    })
 }
 
 function stopEngine(forgetPushes: boolean): void {
   engine?.stop()
   engine = null
-  setState({ sync: { phase: 'idle', lastSync: null, error: null } })
+  setState({ sync: { phase: 'idle', lastSync: null, error: null }, remoteBooks: [], downloading: [] })
   if (forgetPushes) void resetPushed()
 }
 
@@ -195,4 +223,48 @@ export function syncNow(): Promise<void> {
 /** The sync is set up in this build and someone is signed in. */
 export function syncActive(): boolean {
   return engine !== null
+}
+
+/** Books sync too (step 37): signed in, with "Sync books" on. */
+export function bookSyncActive(): boolean {
+  return engine !== null && engine.syncsBooks
+}
+
+/** Turn "Sync books" on or off (step 37); on, a pull follows to catch up. */
+export async function setBookSync(on: boolean): Promise<void> {
+  setState({ bookSync: on })
+  engine?.setBookSync(on)
+  await setSetting(SYNC_BOOKS_KEY, on)
+  if (on) await pull(true)
+}
+
+/** Download a book of the account onto this device (step 37). Rejects with the reason on failure. */
+export async function downloadBook(key: string): Promise<Book> {
+  if (engine === null) throw new Error('Not signed in')
+  setState({ downloading: [...state.downloading, key] })
+  try {
+    return await engine.download(key)
+  } finally {
+    setState({ downloading: state.downloading.filter((k) => k !== key) })
+  }
+}
+
+/** Download every book of the account not on this device (Settings' Download All). Resolves with the number that failed. */
+export async function downloadAll(): Promise<number> {
+  let failed = 0
+  for (const book of [...state.remoteBooks]) {
+    try {
+      await downloadBook(book.key)
+    } catch (err) {
+      console.warn('could not download', book.title, err)
+      failed++
+    }
+  }
+  return failed
+}
+
+/** Delete a book from the account, bundle and reading state (step 37's "Delete everywhere"). The copy here is the caller's. */
+export async function removeFromAccount(bookId: string): Promise<void> {
+  if (engine === null) throw new Error('Not signed in')
+  await engine.removeFromAccount(bookId)
 }

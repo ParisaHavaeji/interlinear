@@ -1,7 +1,8 @@
-# Sync setup (plan.md step 36)
+# Sync setup (plan.md steps 36 and 37)
 
-Signing in with Google keeps each book's reading place and bookmarks on a Supabase project, so
-the same book imported on another device opens where it was left. Books stay on the device.
+Signing in with Google keeps each book's reading place and bookmarks on a Supabase project, and
+(step 37, unless *Sync Books* is turned off in Settings) the aligned books themselves, so a book
+added on one device appears on every other one, ready to download and open where it was left.
 The app talks to Supabase straight from the page (`src/sync/`), with the project's public anon
 key; nothing runs on a server of ours, and row-level security keeps every account to its own
 rows. Without the two environment variables below the build has no Account group at all.
@@ -11,9 +12,12 @@ rows. Without the two environment variables below the build has no Account group
 1. **Supabase project.** Create a free project at supabase.com. In *Project Settings → API*
    note the *Project URL* and the *anon public* key.
 
-2. **Table and policies.** Open the *SQL Editor*, paste [`schema.sql`](schema.sql) and run it.
-   It creates `reading_state`, turns on row-level security, and installs the trigger that keeps
-   the newer of two writes.
+2. **Table, bucket and policies.** Open the *SQL Editor*, paste [`schema.sql`](schema.sql) and
+   run it. It creates `reading_state`, turns on row-level security, installs the trigger that
+   keeps the newer of two writes, and makes the private `books` Storage bucket with policies
+   that let each account reach its own folder only. The script can be run again: a project set
+   up for step 36 gets the step 37 columns, trigger and bucket from the same paste. **Run it
+   before deploying step 37**: the app reads the new columns, and without them every sync fails.
 
 3. **Google OAuth client.** In the Google Cloud console make a project, set up the *OAuth
    consent screen* (external, the app's name, your address; only the basic profile and email
@@ -59,6 +63,25 @@ the Home Screen and try once more), not in the project settings.
 - Last write wins per book, on the whole state (place and bookmarks together). The server
   drops an update with an older stamp, so a slow push from one device never replaces a newer
   state from another.
-- Deleting a book on a device leaves its row on the server; re-importing the same files picks
-  the state up again. Signing out keeps the state on the device and forgets what was pushed,
-  so the next account is sent everything.
+- Deleting a book "from this device" leaves its row and its copy on the server; the other
+  devices keep it, and this one lists it under "In Your Account". *Delete Everywhere* removes
+  both; the other devices drop it from their lists, and a copy one of them already downloaded
+  stays there, on that device alone. Signing out keeps everything on the device and forgets
+  what was pushed, so the next account is sent everything.
+
+## How books sync (step 37)
+
+- A book travels as its bundle (the `.interlinear.json` of Export), gzipped, to
+  `books/<user id>/<content key>.interlinear.json.gz`. Only aligned books go up; the original
+  EPUB or text files never do.
+- Its `reading_state` row records the copy's size and alignment stamp. A repair or a chapter
+  edit moves the stamp, so the book goes up again and the other devices take the new alignment
+  on their next pull; their place and bookmarks stay.
+- Nothing downloads by itself: the Library shows the account's other books with a cloud badge
+  and downloads one when tapped; *Settings → Download All* fetches them all on a new device.
+
+## Checking the bucket's privacy by hand
+
+Sign in on two Google accounts (two browsers). With the first, add a book and let it upload.
+With the second, in the console: `fetch('<project url>/storage/v1/object/authenticated/books/<first user id>/<key>.interlinear.json.gz', {headers: {apikey: '<anon key>', Authorization: 'Bearer ' + JSON.parse(localStorage['interlinear.session']).accessToken}}).then(r => r.status)`
+must answer 400 (not found), never 200; the first user's id is in their own session the same way.
